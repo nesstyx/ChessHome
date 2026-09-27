@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>ChessHome Ideas</title>
+</head>
+<body>
+  <header>
+    <h1>Доска идей</h1>
+  </header>
+  <main>
+    <section id="idea-form">
+      <form id="ideaForm">
+        <label for="title">Заголовок:</label>
+        <input type="text" id="title" name="title" placeholder="Заголовок идеи"><br>
+        <label for="text">Описание:</label>
+        <textarea id="text" name="text" placeholder="Описание идеи" rows="5"></textarea><br>
+        <label for="author">Ваше имя:</label>
+        <input type="text" id="author" name="author" placeholder="Ваше имя"><br>
+        <button type="button" onclick="submitIdea()">Отправить идею</button>
+      </form>
+    </section>
+    <section id="idea-list">
+      <!-- Список идей будет загружен через JavaScript -->
+    </section>
+  </main>
+  <script src="ideas.js"></script>
+</body>
+</html>
