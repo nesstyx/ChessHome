@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChessHome Ideas</title>
+  <style>
+    :root {
+      --chess-bg: #1a1a1d; --card-bg: #2b2b32; --text-main: #e0e0e0;
+      --text-muted: #999; --accent-gold: #d4af37; --status-liked: #2ecc71;
+      --status-dev: #3498db; --status-rejected: #e74c3c; --border: #333;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--chess-bg); color: var(--text-main);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; }
+    a { color: inherit; text-decoration: none; }
+
+    header { display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 2rem; border-bottom: 1px solid var(--border);
+      background: rgba(26,26,29,.95); position: sticky; top: 0; z-index: 100; }
+    .logo { font-weight: 700; font-size: 1.4rem; display: flex; align-items: center; gap: .5rem; }
+    .knight-icon { font-size: 1.6rem; color: var(--accent-gold); }
+    .dot { color: var(--accent-gold); }
+    nav ul { display: flex; gap: 1.2rem; list-style: none; align-items: center; }
+    nav a:hover, nav a.active { color: var(--accent-gold); }
+
+    main { max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; }
+    h1 { margin-bottom: .8rem; font-weight: 600; }
+    .lead { color: var(--text-muted); margin-bottom: 2rem; }
+
+    #idea-form { background: var(--card-bg); padding: 1.8rem; border-radius: 8px; border: 1px solid var(--border); }
+    label { display: block; margin-top: 1rem; font-size: .9rem; color: var(--text-muted); }
+    input[type=text], textarea { width: 100%; padding: .7rem; margin-top: .4rem;
+      background: #1f1f24; border: 1px solid var(--border); color: #fff; border-radius: 4px; }
+    textarea { min-height: 120px; resize: vertical; }
+    button.primary { margin-top: 1.3rem; padding: .8rem 1.6rem; background: var(--accent-gold);
+      color: #000; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; }
+    button.primary:hover { background: #bfa02e; }
+
+    /* --- фильтры --- */
+    .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 2rem 0 1rem; }
+    .tab { background: var(--card-bg); color: var(--text-muted); border: 1px solid var(--border);
+      padding: .45rem .8rem; border-radius: 20px; cursor: pointer; font-size: .85rem; }
+    .tab.active { color: #000; background: var(--accent-gold); border-color: var(--accent-gold); }
+    .tab b { opacity: .75; margin-left: .25rem; }
+    .switch { margin-left: auto; display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: var(--text-muted); }
+
+    /* --- карточки --- */
+    .idea-card { background: var(--card-bg); border: 1px solid var(--border); border-left-width: 4px;
+      border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+    .idea-card.new { border-left-color: var(--text-muted); }
+    .idea-card.liked { border-left-color: var(--status-liked); }
+    .idea-card.dev { border-left-color: var(--status-dev); }
+    .idea-card.rejected { border-left-color: var(--status-rejected); opacity: .65; }
+    .idea-header { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; }
+    .idea-title { font-size: 1.1rem; font-weight: 600; margin-bottom: .3rem; }
+    .idea-meta { font-size: .85rem; color: var(--text-muted); }
+    .idea-text { color: #ccc; white-space: pre-wrap; }
+    .status-badge { padding: .3rem .7rem; border-radius: 20px; font-size: .75rem; color: #fff;
+      font-weight: 600; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+    .status-badge.new { background: #555; }
+    .status-badge.liked { background: var(--status-liked); }
+    .status-badge.dev { background: var(--status-dev); }
+    .status-badge.rejected { background: var(--status-rejected); }
+    .team-note { font-size: .85rem; color: var(--accent-gold); border-top: 1px dashed var(--border); padding-top: .5rem; }
+
+    .admin-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .4rem; }
+    .btn-admin { padding: .4rem .8rem; border: 1px solid var(--border); background: #1f1f24; color: #ddd;
+      border-radius: 4px; cursor: pointer; font-size: .78rem; }
+    .btn-admin:hover { border-color: var(--accent-gold); }
+    .btn-admin.on-liked { background: var(--status-liked); color: #0a0a0a; border-color: transparent; }
+    .btn-admin.on-dev { background: var(--status-dev); border-color: transparent; }
+    .btn-admin.on-rejected { background: var(--status-rejected); border-color: transparent; }
+    .note-row { display: flex; gap: .5rem; margin-top: .3rem; }
+    .note-row input { margin: 0; flex: 1; }
+
+    /* --- админ-панель и вход --- */
+    .admin-only { display: none; }
+    body.is-admin .admin-only { display: flex; }
+    .admin-bar { display: none; align-items: center; gap: .8rem; padding: .7rem 1rem; margin-bottom: 1rem;
+      background: rgba(212,175,55,.08); border: 1px solid var(--accent-gold); border-radius: 8px; font-size: .9rem; }
+    body.is-admin .admin-bar { display: flex; }
+    .ghost { background: none; border: 1px solid var(--border); color: var(--text-muted);
+      padding: .35rem .7rem; border-radius: 4px; cursor: pointer; }
+
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none;
+      align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
+    .modal.open { display: flex; }
+    .modal-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 1.6rem; width: 100%; max-width: 380px; }
+    .modal-box h3 { margin-bottom: .3rem; }
+    .modal-box p { color: var(--text-muted); font-size: .85rem; }
+
+    #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: var(--card-bg); border: 1px solid var(--accent-gold); color: #fff;
+      padding: .7rem 1.2rem; border-radius: 6px; opacity: 0; transition: .3s; pointer-events: none; z-index: 300; }
+    #toast.show { opacity: 1; }
+    .empty { color: var(--text-muted); padding: 1.5rem 0; }
+
+    @media (max-width: 640px) {
+      header { flex-direction: column; align-items: stretch; gap: 1rem; }
+      nav ul { justify-content: center; flex-wrap: wrap; }
+      main { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/" class="logo"><span class="knight-icon">♞</span><span>ChessHome</span><span class="dot">.pro</span></a>
+    <nav>
+      <ul>
+        <li><a href="/">Главная</a></li>
+        <li><a href="/ideas" class="active">Идеи</a></li>
+        <li><button class="ghost admin-only" id="login-again" style="display:none">Сменить админа</button></li>
+        <li><button class="ghost" id="login-btn">Вход команды</button></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Доска идей</h1>
+    <p class="lead">
+      Предложи идею для ChessHome. Команда (GGbers, shahmati_23, ChessHome) читает каждое предложение
+      и отмечает его статусом: <b>понравилось</b>, <b>в разработке</b> или <b>не понравилось</b>.
+      Комментарии выключены намеренно — только идеи и наша оценка.
+    </p>
+
+    <!-- панель появляется после входа -->
+    <div class="admin-bar">
+      <span>Режим команды: <b id="admin-name">—</b>. Отметьте идею — статус сразу увидят все.</span>
+      <button class="ghost" id="logout-btn" style="margin-left:auto">Выйти</button>
+    </div>
+
+    <section id="idea-form">
+      <form id="ideaForm">
+        <label for="title">Заголовок идеи</label>
+        <input type="text" id="title" name="title" maxlength="90" placeholder="Например: рейтинг клубов и матчи между ними" required>
+        <label for="text">Описание</label>
+        <textarea id="text" name="text" maxlength="1500" placeholder="Что именно добавить и почему это важно игрокам." required></textarea>
+        <label for="author">Ваше имя (необязательно)</label>
+        <input type="text" id="author" name="author" maxlength="40" placeholder="Ник или имя">
+        <button type="submit" class="primary" id="submit-btn">Отправить идею</button>
+      </form>
+    </section>
+
+    <div class="toolbar" id="tabs">
+      <button class="tab active" data-status="">Все <b data-count="all">0</b></button>
+      <button class="tab" data-status="new">На рассмотрении <b data-count="new">0</b></button>
+      <button class="tab" data-status="liked">Понравилось <b data-count="liked">0</b></button>
+      <button class="tab" data-status="dev">В разработке <b data-count="dev">0</b></button>
+      <label class="switch admin-only"><input type="checkbox" id="show-rejected"> показать отклонённые</label>
+    </div>
+
+    <section id="idea-list"><p class="empty">Загружаем идеи…</p></section>
+  </main>
+
+  <!-- вход для команды -->
+  <div class="modal" id="login-modal">
+    <div class="modal-box">
+      <h3>Вход команды</h3>
+      <p>Только для GGbers, shahmati_23 и ChessHome. Ключ выдаёт владелец проекта.</p>
+      <label for="admin-key">Ключ доступа</label>
+      <input type="text" id="admin-key" autocomplete="off" placeholder="ключ">
+      <button class="primary" id="login-submit" style="width:100%">Войти</button>
+      <button class="ghost" id="login-close" style="width:100%;margin-top:.5rem">Отмена</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+  (function () {
+    const STATUS = {
+      'new':    { label: 'На рассмотрении', icon: '⏳' },
+      liked:    { label: 'Понравилось',     icon: '👍' },
+      dev:      { label: 'В разработке',    icon: '🛠' },
+      rejected: { label: 'Не понравилось',  icon: '🚫' }
+    };
+
+    const state = { ideas: [], isAdmin: false, adminName: null, filter: '', showRejected: false };
+    const $ = (s) => document.querySelector(s);
+    const list = $('#idea-list');
+
+    /* ---------- вспомогательное ---------- */
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;      // textContent = защита от XSS в чужих идеях
+      return n;
+    }
+    function fmt(ts) {
+      const d = new Date(ts);
+      return d.toLocaleDateString('ru-RU') + ' ' +
+             d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    }
+    let toastTimer;
+    function toast(msg) {
+      const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+    }
+    async function api(url, opts) {
+      const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, opts));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const msg = Array.isArray(data.errors) ? data.errors.join(' ') : (data.error || 'Ошибка сети');
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    /* ---------- проверка: мы админ или гость ---------- */
+    async function checkSession() {
+      try {
+        const d = await api('/api/admin/me');
+        state.isAdmin = !!d.isAdmin;
+        state.adminName = d.adminName || null;
+      } catch (e) { state.isAdmin = false; }
+      document.body.classList.toggle('is-admin', state.isAdmin);
+      $('#login-btn').style.display = state.isAdmin ? 'none' : '';
+      if (state.isAdmin) {
+        $('#admin-name').textContent = state.adminName;
+        $('#login-again').style.display = '';
+      }
+    }
+
+    /* ---------- загрузка ленты ---------- */
+    async function loadIdeas() {
+      try {
+        const d = await api(state.isAdmin ? '/api/admin/ideas' : '/api/ideas');
+        state.ideas = d.ideas || [];
+        render();
+      } catch (e) {
+        list.innerHTML = '';
+        list.appendChild(el('p', 'empty', 'Не удалось загрузить идеи: ' + e.message));
+      }
+    }
+
+    function visibleIdeas() {
+      let arr = state.ideas.slice();
+      if (!state.isAdmin || !state.showRejected) arr = arr.filter(i => i.status !== 'rejected');
+      if (state.filter) arr = arr.filter(i => i.status === state.filter);
+      return arr.sort((a, b) => b.createdAt - a.createdAt);
+    }
+
+    function render() {
+      const all = state.ideas.filter(i => state.isAdmin || i.status !== 'rejected');
+      ['all', 'new', 'liked', 'dev'].forEach(k => {
+        const b = document.querySelector(`[data-count="${k}"]`);
+        if (b) b.textContent = k === 'all' ? all.length : all.filter(i => i.status === k).length;
+      });
+
+      const ideas = visibleIdeas();
+      list.innerHTML = '';
+      if (!ideas.length) { list.appendChild(el('p', 'empty', 'Здесь пока пусто — предложи первым.')); return; }
+      ideas.forEach(addCard);
+    }
+
+    function addCard(idea) {
+      const card = el('article', 'idea-card ' + idea.status);
+
+      const head = el('div', 'idea-header');
+      const left = el('div');
+      left.appendChild(el('div', 'idea-title', idea.title));
+      left.appendChild(el('div', 'idea-meta',
+        (idea.author || 'Аноним') + ' • ' + fmt(idea.createdAt)));
+      const st = STATUS[idea.status] || STATUS['new'];
+      const badge = el('span', 'status-badge ' + idea.status, st.icon + ' ' + st.label);
+      if (idea.decidedBy) badge.title = 'Отметил: ' + idea.decidedBy + ' • ' + fmt(idea.decidedAt);
+      head.append(left, badge);
+      card.appendChild(head);
+      card.appendChild(el('div', 'idea-text', idea.text));
+      if (idea.note) card.appendChild(el('div', 'team-note', 'Ответ команды: ' + idea.note));
+
+      if (state.isAdmin) card.appendChild(adminPanel(idea));
+      list.appendChild(card);
+    }
+
+    /* ---------- логику рассмотрения ---------- */
+    function adminPanel(idea) {
+      const box = el('div');
+
+      const row = el('div', 'admin-actions');
+      [['liked', '👍 Понравилось'], ['dev', '🛠 В разработке'],
+       ['rejected', '👎 Не понравилось'], ['new', '↺ На рассмотрение']].forEach(p => {
+        const b = el('button', 'btn-admin on-' + p[0] + (idea.status === p[0] ? ' active' : ''), p[1]);
+        if (idea.status === p[0]) b.style.outline = '2px solid #fff';
+        b.onclick = () => setStatus(idea.id, p[0]);
+        row.appendChild(b);
+      });
+      const del = el('button', 'btn-admin', '🗑 Удалить');
+      del.onclick = () => { if (confirm('Удалить идею навсегда?')) removeIdea(idea.id); };
+      row.appendChild(del);
+      box.appendChild(row);
+
+      const noteRow = el('div', 'note-row');
+      const inp = el('input');
+      inp.type = 'text'; inp.maxLength = 300;
+      inp.placeholder = 'Ответ команды (виден всем, например: «делаем в сентябре»)...';
+      inp.value = idea.note || '';
+      const save = el('button', 'btn-admin', 'Сохранить ответ');
+      save.onclick = () => {
+        api('/api/admin/ideas/' + idea.id, { method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: inp.value }) })
+          .then(() => { toast('Ответ сохранён'); loadIdeas(); })
+          .catch(e => toast(e.message));
+      };
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save.click(); } });
+      noteRow.append(inp, save);
+      box.appendChild(noteRow);
+      return box;
+    }
+
+    async function setStatus(id, status) {
+      try {
+        await api('/api/admin/ideas/' + id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        toast(status === 'rejected'
+          ? 'Отмечено «не понравилось» — скрыто из общей ленты.'
+          : 'Статус обновлён: ' + STATUS[status].label);
+        await loadIdeas();
+      } catch (e) { toast(e.message); }
+    }
+    async function removeIdea(id) {
+      try { await api('/api/admin/ideas/' + id, { method: 'DELETE' }); toast('Удалено'); loadIdeas(); }
+      catch (e) { toast(e.message); }
+    }
+
+    /* ---------- отправка идеи ---------- */
+    $('#ideaForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const btn = $('#submit-btn');
+      const body = {
+        title: this.elements.title.value,
+        text: this.elements.text.value,
+        author: this.elements.author.value || 'Аноним'
+      };
+      btn.disabled = true; btn.textContent = 'Отправляем…';
+      try {
+        await api('/api/ideas', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        this.reset();
+        toast('Идея отправлена! Статус — «На рассмотрении».');
+        await loadIdeas();
+      } catch (e) { toast(e.message); }
+      finally { btn.disabled = false; btn.textContent = 'Отправить идею'; }
+    });
+
+    /* ---------- вход / выход ---------- */
+    const modal = $('#login-modal');
+    function openLogin() { modal.classList.add('open'); setTimeout(() => $('#admin-key').focus(), 60); }
+    function closeLogin() { modal.classList.remove('open'); $('#admin-key').value = ''; }
+
+    $('#login-btn').onclick = openLogin;
+    $('#login-again').onclick = openLogin;
+    $('#login-close').onclick = closeLogin;
+    modal.addEventListener('click', e => { if (e.target === modal) closeLogin(); });
+
+    async function doLogin() {
+      const key = $('#admin-key').value.trim();
+      if (!key) return toast('Введите ключ');
+      try {
+        const d = await api('/api/admin/login', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
+        closeLogin();
+        await checkSession();
+        await loadIdeas();
+        toast('Привет, ' + d.adminName + '!');
+      } catch (e) { toast(e.message); }
+    }
+    $('#login-submit').onclick = doLogin;
+    $('#admin-key').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+    $('#logout-btn').onclick = async () => {
+      await api('/api/admin/logout', { method: 'POST' }).catch(() => {});
+      await checkSession(); await loadIdeas(); toast('Вы вышли из режима команды');
+    };
+
+    /* ---------- фильтры ---------- */
+    $('#tabs').addEventListener('click', e => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      state.filter = tab.dataset.status;
+      render();
+    });
+    $('#show-rejected').addEventListener('change', e => { state.showRejected = e.target.checked; render(); });
+
+    /* ---------- старт и автообновление ленты ---------- */
+    checkSession().then(loadIdeas);
+    setInterval(loadIdeas, 45000);   // отметки команды подтягиваются сами
+  })();
+  </script>
+</body>
+</html>
