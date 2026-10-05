@@ -8,6 +8,19 @@
 (function () {
 'use strict';
 
+// ── fetchJSON (1.5): storm.js опирается на fetchJSON, но в app.js есть
+// только apiGet/apiPost — страница падала с ReferenceError. Определяем
+// через стандартный fetch с same-origin куками (совместимо с вызовами
+// fetchJSON(url) и fetchJSON(url, { method, headers, body })).
+async function fetchJSON(url, opts = {}) {
+  const res = await fetch(url, { credentials: 'same-origin', ...opts });
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch (e) { data = {}; }
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
 // ── Константы ─────────────────────────────────────────────────
 const STORM_DURATION  = 180;  // секунд
 const STORM_STREAK5   = 3;    // +3 сек за серию 5
@@ -27,6 +40,8 @@ const storm = {
   running:      false,
   _timer:       null,
   currentPuzzle:null,
+  runId:        null,
+  _finishing:   false,
   board:        null,
   flipped:      false,
   legalDests:   {},
@@ -114,8 +129,20 @@ async function stormStart() {
     puzzles:[], idx:0, score:0, correct:0, wrong:0, streak:0,
     timeBonus:0, timeLeft:STORM_DURATION, running:false,
     selected:null, moveStep:0, autoPlaying:false,
+    runId:null, _finishing:false,
   });
   clearInterval(storm._timer);
+
+  // 1.5: сервер требует валидный runId, выданный POST /api/storm/start,
+  // иначе финишь отклоняется с 400 "Забег не найден". Регистрируем забег ДО
+  // старта таймера: время забега считается от этого запроса.
+  try {
+    const startRes = await fetchJSON('/api/storm/start', { method: 'POST' });
+    storm.runId = startRes.runId || null;
+  } catch (e) {
+    if (typeof toast === 'function') toast('Не удалось начать забег: ' + (e.message || 'ошибка'), 'error');
+    return;
+  }
 
   _stormUpdateHUD();
   document.getElementById('storm-board').innerHTML =
@@ -139,6 +166,8 @@ async function stormStart() {
 }
 
 async function stormFinish() {
+  if (storm._finishing) return;
+  storm._finishing = true;
   storm.running = false;
   clearInterval(storm._timer);
 
@@ -164,6 +193,7 @@ async function stormFinish() {
         correct:       storm.correct,
         wrong:         storm.wrong,
         timeBonus:     storm.timeBonus,
+        runId:         storm.runId,
       }),
     });
     if (r && r.isBest) {

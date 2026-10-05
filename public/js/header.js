@@ -829,7 +829,7 @@
     header.innerHTML = `
       <a href="/" class="ch-logo"
         onclick="event.preventDefault();(window.showPage?showPage('home'):location.href='/')">
-        <img src="../img/logo/logo.png" alt="" class="ch-logo-icon">
+        <img src="/img/logo/logo.png" alt="" class="ch-logo-icon">
         <span class="ch-logo-text">Chess Home</span>
       </a>
       <ul id="ch-nav">${_buildDesktopNav()}</ul>
@@ -855,7 +855,7 @@
     drawer.setAttribute('aria-modal', 'true');
     drawer.innerHTML = `
       <div class="ch-dr-head">
-        <div class="ch-dr-logo"> <img src="../img/logo/logo.png" alt="ChessHome"> ChessHome </div>
+        <div class="ch-dr-logo"> <img src="/img/logo/logo.png" alt="ChessHome"> ChessHome </div>
         <button class="ch-dr-close" onclick="CH.closeMobileNav()">✕</button>
       </div>
       <div class="ch-dr-links" id="ch-drawer-links">${_buildDrawerLinks()}</div>

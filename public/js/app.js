@@ -261,12 +261,6 @@ async function handleLogin(e) {
 
   try {
     const data = await apiPost('/login', { username, password });
-    // Пароль верный, но у аккаунта включена 2FA — токен ещё не выдан,
-    // сервер ждёт код с почты. Показываем шаг ввода кода вместо закрытия модалки.
-    if (data.twoFactorRequired) {
-      showLoginTwoFactorStep(data.message);
-      return;
-    }
     currentUser = data.user; // сервер уже установил HttpOnly cookie ch_token
     closeModal('modal-login');
     updateAuthUI(); connectSocket();
@@ -279,78 +273,6 @@ async function handleLogin(e) {
   }
 }
 
-// ─── 2FA при входе ───────────────────────────────────────────
-// Пароль уже проверен сервером; здесь только код с почты.
-// Паттерн: сохранить innerHTML модалки → подменить на форму кода → восстановить.
-function showLoginTwoFactorStep(message) {
-  const modal = document.getElementById('modal-login');
-  if (!modal) return;
-  modal._origHTML = modal.innerHTML;
-
-  modal.innerHTML = `
-    <button class="modal-close" onclick="closeModal('modal-login')">✕</button>
-    <div class="login-modal-header">
-      <div class="login-modal-icon">✉️</div>
-      <h2>Код подтверждения</h2>
-      <p class="login-modal-sub">${escapeHtml(message || 'Мы отправили код на вашу почту')}</p>
-    </div>
-    <div style="padding:0 24px 24px">
-      <input id="login-2fa-code" type="text" inputmode="numeric" maxlength="6" placeholder="_ _ _ _ _ _"
-        style="width:100%;font-size:28px;letter-spacing:12px;text-align:center;padding:14px;border:2px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text);box-sizing:border-box">
-      <div id="login-2fa-error" class="form-error" style="min-height:20px;margin-top:8px"></div>
-      <button type="button" onclick="handleLoginVerify2FA()" class="btn btn-primary" id="login-2fa-submit-btn" style="width:100%;margin-top:16px;padding:12px">
-        <span id="login-2fa-submit-text">Подтвердить</span>
-      </button>
-      <button type="button" onclick="cancelLoginTwoFactor()" class="btn btn-ghost" style="width:100%;margin-top:8px;font-size:13px">← Назад</button>
-    </div>
-  `;
-
-  // Авто-фокус и авто-сабмит при 6 цифрах (как в шаге подтверждения email)
-  setTimeout(() => {
-    const inp = document.getElementById('login-2fa-code');
-    if (inp) {
-      inp.focus();
-      inp.addEventListener('input', () => {
-        if (inp.value.replace(/\D/g, '').length === 6) handleLoginVerify2FA();
-      });
-    }
-  }, 100);
-}
-
-async function handleLoginVerify2FA() {
-  const codeEl = document.getElementById('login-2fa-code');
-  const errEl  = document.getElementById('login-2fa-error');
-  const btn    = document.getElementById('login-2fa-submit-btn');
-  if (!codeEl || !errEl) return;
-  const code = codeEl.value.replace(/\D/g, '');
-  if (code.length !== 6) { errEl.textContent = 'Введите 6-значный код'; return; }
-  errEl.textContent = '';
-  if (btn) { btn.disabled = true; btn.classList.add('loading'); }
-
-  try {
-    const data = await apiPost('/login/verify-2fa', { code });
-    currentUser = data.user; // сервер уже установил HttpOnly cookie ch_token
-    const modal = document.getElementById('modal-login');
-    if (modal) { modal.innerHTML = modal._origHTML || modal.innerHTML; delete modal._origHTML; }
-    closeModal('modal-login');
-    updateAuthUI(); connectSocket();
-    toast('С возвращением, ' + currentUser.username + '! ♟️', 'success');
-    showPage('lobby');
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
-  }
-}
-
-function cancelLoginTwoFactor() {
-  const modal = document.getElementById('modal-login');
-  if (!modal || !modal._origHTML) return;
-  modal.innerHTML = modal._origHTML;
-  delete modal._origHTML;
-  const form = modal.querySelector('form');
-  if (form) form.addEventListener('submit', handleLogin);
-}
 // --------------ВЫХОД----------------------------------------------
 
 async function logout() {
@@ -1404,7 +1326,9 @@ function appendGlobalChatMsg(msg, scroll = true) {
     delBtn.onclick = () => deleteChatMsg(msg.id, row);
     header.appendChild(delBtn);
   }
-  if (!isStreamer && !isAdmin && !canDelete){
+  // БАГ (исправлен): условие включало !canDelete ("зритель не админ"), поэтому
+  // когда в чат заходил администратор, у ВСЕХ обычных сообщений пропадали аватарки.
+  if (!isStreamer && !isAdmin){
     const av = document.createElement('div');
   av.style.cssText = 'width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#000;flex-shrink:0;cursor:pointer;margin-top:2px';
   av.textContent = msg.username[0].toUpperCase();
@@ -1951,74 +1875,6 @@ async function selectEmoji(emoji) {
   }
 }
 
-// Активность за 7 дней
-// async function _loadProfileActivity(username, games) {
-//   const feedEl    = document.getElementById('profile-activity-feed');
-//   const blocksEl  = document.getElementById('profile-activity-blocks');
-//   if (!feedEl || !blocksEl) return;
-
-//   const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
-//   const recentGames = games.filter(g => (g.endedAt || 0) > since);
-//   const wins = recentGames.filter(g => {
-//     const isWhite = g.white === username;
-//     return g.result === (isWhite ? 'white' : 'black');
-//   }).length;
-
-//   let blogPosts = 0, forumPosts = 0, chatMsgs = 0;
-//   try {
-//     const b = await fetch('/api/blog?limit=50').then(r=>r.json());
-//     if (b.posts) blogPosts = b.posts.filter(p => p.author === username && p.createdAt > since).length;
-//   } catch(e){}
-//   try {
-//     const ft = await fetch('/api/forum/threads?limit=50').then(r=>r.json());
-//     if (ft.threads) forumPosts = ft.threads.filter(t => t.author === username && t.createdAt > since).length;
-//   } catch(e){}
-//   try {
-//     const ch = await fetch('/api/chat?limit=500').then(r=>r.json());
-//     if (Array.isArray(ch)) chatMsgs = ch.filter(m => m.username === username && m.timestamp > since).length;
-//   } catch(e){}
-
-//   const blocks = [
-//     { icon:'♟', label:'Партий',     val: recentGames.length, color:'var(--accent)' },
-//     { icon:'🏆', label:'Побед',      val: wins,               color:'var(--green)' },
-//     { icon:'💬', label:'В чате',     val: chatMsgs,           color:'#7c9cbf' },
-//     { icon:'📰', label:'Блог',       val: blogPosts,          color:'#c9a84c' },
-//     { icon:'💡', label:'Форум',      val: forumPosts,         color:'#8bc4a0' },
-//     { icon:'🧩', label:'Задач',      val: '—',               color:'var(--text-muted)' },
-//   ];
-
-//   blocksEl.innerHTML = blocks.map(b => `
-//     <div class="settings-section" style="text-align:center;padding:10px 6px;margin:0">
-//       <div style="font-size:18px">${b.icon}</div>
-//       <div style="font-size:20px;font-weight:700;color:${b.color};font-family:var(--font-mono)">${b.val}</div>
-//       <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${b.label}</div>
-//     </div>`).join('');
-
-//   const events = recentGames.map(g => {
-//     const isWhite = g.white === username;
-//     const opp = isWhite ? g.black : g.white;
-//     let res;
-//     if (g.result === 'draw') res = 'Ничья';
-//     else if (g.result === (isWhite?'white':'black')) res = 'Победа';
-//     else res = 'Поражение';
-//     const resColor = res==='Победа'?'var(--green)':res==='Поражение'?'var(--red)':'var(--text-secondary)';
-//     const moves = g.moves ? Math.floor(g.moves.length/2) : 0;
-//     const dateStr = g.endedAt ? new Date(g.endedAt).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-//     return { ts: g.endedAt||0, html: `
-//       <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="_openGameFromProfile(${JSON.stringify(JSON.stringify(g))})">
-//         <div style="width:34px;height:34px;border-radius:50%;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">♟</div>
-//         <div style="flex:1">
-//           <div style="font-size:13px">Партия vs <b>${escapeHtml(opp)}</b> — <b style="color:${resColor}">${res}</b></div>
-//           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escapeHtml(g.timeControl||'?')} · ${moves} ходов${dateStr?' · '+dateStr:''}</div>
-//         </div>
-//       </div>` };
-//   }).sort((a,b)=>b.ts-a.ts);
-
-//   feedEl.innerHTML = events.length
-//     ? events.slice(0,30).map(e=>e.html).join('')
-//     : '<div style="text-align:center;color:var(--text-muted);padding:20px">Нет активности за 7 дней</div>';
-// }
-
 async function renderProfileUI(username) {
   _profileShow('profile-loading');
   // Сброс вкладок
@@ -2118,8 +1974,9 @@ async function renderProfileUI(username) {
     // Таблица колебаний
     _buildRatingTable(games, u.username, u.rating);
 
-    // Активность
-    loadActivity(u.username, games);
+    // Активность. БАГ (исправлен): вызов несуществующей loadActivity кидал
+    // ReferenceError внутри try/catch — весь профиль уходил в "Пользователь не найден".
+    if (typeof loadActivity === 'function') loadActivity(u.username, games);
 
     // Перепроверяем онлайн
     const recheckOnline = async (n) => {
@@ -3186,8 +3043,12 @@ async function pzDoMove(from, to, promoChoice) {
       pz._failed = true;
       const fb = document.getElementById('puzzle-feedback');
       if (fb) { fb.style.display = 'block'; fb.className = 'puzzle-feedback wrong'; fb.textContent = chT('puzzles.feedback_wrong', '✗ Неверно — попробуй ещё раз'); }
-      // Фиксируем поражение
-      apiPost('/puzzles/' + pz.puzzle.id + '/attempt', { correct: false }).then(data => {
+      // Фиксируем поражение. БАГ (исправлен): раньше шло { correct: false }
+      // без ходов — сервер после защиты от накрутки рейтинга (issue M3) требует
+      // массив moves и отвечал 400 "Не указаны ходы решения". Шлём ПОЛНУЮ
+      // историю ходов (ходы игрока + автоматические ответы соперника):
+      // сервер сравнивает чётные позиции (ходы игрока) с эталоном.
+      apiPost('/puzzles/' + pz.puzzle.id + '/attempt', { moves: pz._history.map(h => h.label) }).then(data => {
         // Показываем изменение рейтинга если есть
         if (data && data.ratingDelta && data.ratingDelta < 0) {
           const rc = document.getElementById('puzzle-rating-change');
@@ -3240,7 +3101,9 @@ async function pzDoMove(from, to, promoChoice) {
     pz._moveIndex = (pz._moveIndex || 0) + 1;
 
     if (res.finished) {
-      const data = await apiPost('/puzzles/' + pz.puzzle.id + '/attempt', { correct: true });
+      // БАГ (исправлен): раньше шло { correct: true } без ходов — сервер
+      // отвечал 400 "Не указаны ходы решения", рейтинг за задачи не начислялся.
+      const data = await apiPost('/puzzles/' + pz.puzzle.id + '/attempt', { moves: pz._history.map(h => h.label) });
       pzShowSuccess(data);
       return;
     }

@@ -87,100 +87,6 @@ async function withTransaction(fn) {
 }
 
 
-// ── Email верификация ─────────────────────────────────────────
-const { Resend } = require('resend');
-
-
-const pendingPasswordChanges = new Map();
-
-const pendingDeletions = new Map();
-
-// Привязка email к аккаунту (issue #50): код подтверждения привязки почты.
-const pendingEmailLinks = new Map();
-
-// 2FA: код входа, отправленный на почту, ждёт подтверждения перед выдачей jwt.
-const pendingLogins = new Map();
-
-// Не даём спамить письма при повторных заходах/выходах — пока предыдущий
-// код ещё "свежий", новый не шлём, просто говорим, что он уже отправлен.
-const TWO_FA_RESEND_COOLDOWN_MS = 30 * 1000;
-
-const twoFactorLastSent = new Map();
- // username_low -> timestamp
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [code, d] of pendingPasswordChanges.entries()) {
-    if (now > d.expiresAt) pendingPasswordChanges.delete(code);
-  }
-  for (const [code, d] of pendingDeletions.entries()) {
-    if (now > d.expiresAt) pendingDeletions.delete(code);
-  }
-  for (const [code, d] of pendingLogins.entries()) {
-    if (now > d.expiresAt) pendingLogins.delete(code);
-  }
-}, 10 * 60 * 1000);
-
-
-async function sendPasswordChangeEmail(email, code) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({
-    from: 'Chess Home <noreply@chesshome.pro>',
-    to: email,
-    subject: 'Смена пароля — Chess Home',
-    html: `
-      <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#1a1a2e;color:#e0e0e0;border-radius:12px">
-        <h2 style="color:#7c9cbf;margin-top:0">♟️ Chess Home</h2>
-        <p>Вы запросили смену пароля. Ваш код подтверждения:</p>
-        <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:#fff;background:#0f0f1e;padding:20px;border-radius:8px;text-align:center">${code}</div>
-        <p style="color:#888;font-size:13px;margin-top:24px">Код действует 15 минут. Если вы не запрашивали смену пароля — немедленно смените пароль или обратитесь в поддержку.</p>
-      </div>
-    `
-  });
-  if (error) throw new Error(error.message);
-}
-
-
-async function sendTwoFactorLoginEmail(email, code) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({
-    from: 'Chess Home <noreply@chesshome.pro>',
-    to: email,
-    subject: 'Код входа — Chess Home',
-    html: `
-      <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#1a1a2e;color:#e0e0e0;border-radius:12px">
-        <h2 style="color:#7c9cbf;margin-top:0">♟️ Chess Home</h2>
-        <p>Кто-то (надеемся, что вы) пытается войти в ваш аккаунт. Код подтверждения входа:</p>
-        <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:#fff;background:#0f0f1e;padding:20px;border-radius:8px;text-align:center">${code}</div>
-        <p style="color:#888;font-size:13px;margin-top:24px">Код действует 10 минут. Если это были не вы — просто проигнорируйте письмо, пароль остаётся прежним.</p>
-      </div>
-    `
-  });
-  if (error) throw new Error(error.message);
-}
-
-
-async function sendDeleteAccountEmail(email, username, code) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({
-    from: 'Chess Home <noreply@chesshome.pro>',
-    to: email,
-    subject: 'Удаление аккаунта — Chess Home',
-    html: `
-      <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#1a1a2e;color:#e0e0e0;border-radius:12px">
-        <h2 style="color:#c0392b;margin-top:0">⚠️ Chess Home — Удаление аккаунта</h2>
-        <p>Поступил запрос на <strong>безвозвратное удаление</strong> аккаунта <strong>${username}</strong>.</p>
-        <p>Код подтверждения:</p>
-        <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:#fff;background:#0f0f1e;padding:20px;border-radius:8px;text-align:center">${code}</div>
-        <p style="color:#e74c3c;font-size:13px;margin-top:16px">⚠️ После удаления аккаунт восстановить невозможно. Ник будет навсегда заблокирован для регистрации.</p>
-        <p style="color:#888;font-size:13px">Если вы не запрашивали удаление — проигнорируйте это письмо. Код действует 15 минут.</p>
-      </div>
-    `
-  });
-  if (error) throw new Error(error.message);
-}
-
-
 // ── Фильтр матерных ников ─────────────────────────────────────
 const BAD_NICK_WORDS = [
   'хуй','хуе','хер','пизд','бляд','блять','ебал','ебан','еблан',
@@ -439,7 +345,6 @@ function rowToUser(row) {
     bio:              row.bio         || '',
     fshrRating:       row.fshr_rating != null ? row.fshr_rating : null,
     fideRating:       row.fide_rating != null ? row.fide_rating : null,
-    twoFactorEnabled: row.two_factor_enabled || false,
     vipUntil:         row.vip_until != null ? Number(row.vip_until) : null,
     badges:           Array.isArray(row.badges) ? row.badges : [],
   };
@@ -492,18 +397,18 @@ async function saveUser(u) {
     INSERT INTO users (id, username, username_low, email, password_hash, rating,
       games_played, wins, losses, draws, avatar, role, banned, ban_reason,
       created_at, created_from_ip, created_device_id, emoji, bio, fshr_rating, fide_rating,
-      two_factor_enabled, vip_until, shadow_banned, shadow_ban_reason, badges)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+      vip_until, shadow_banned, shadow_ban_reason, badges)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
     ON CONFLICT (id) DO UPDATE SET
       rating=$6, games_played=$7, wins=$8, losses=$9, draws=$10,
       avatar=$11, role=$12, banned=$13, ban_reason=$14, emoji=$18,
-      bio=$19, fshr_rating=$20, fide_rating=$21, two_factor_enabled=$22, vip_until=$23,
-      shadow_banned=$24, shadow_ban_reason=$25, badges=$26
+      bio=$19, fshr_rating=$20, fide_rating=$21, vip_until=$22,
+      shadow_banned=$23, shadow_ban_reason=$24, badges=$25
   `, [u.id, u.username, u.username.toLowerCase(), u.email || null,
       u.passwordHash, u.rating, u.gamesPlayed, u.wins, u.losses, u.draws,
       u.avatar || null, u.role || 'user', u.banned || false, u.banReason || null,
       u.createdAt, u.createdFromIP || null, u.createdDeviceId || null, u.emoji || '',
-      u.bio || '', u.fshrRating ?? null, u.fideRating ?? null, u.twoFactorEnabled || false,
+      u.bio || '', u.fshrRating ?? null, u.fideRating ?? null,
       u.vipUntil ?? null, u.shadowBanned || false, u.shadowBanReason || null,
       JSON.stringify(u.badges || [])]);
 }
@@ -1980,6 +1885,76 @@ async function initPuzzleTables() {
 //  ключом в заголовке x-durka-key (см. DURKA_ADMIN_KEY в .env).
 //  Обычная сессия/логин тут не нужен — скрипт работает с сервера напрямую.
 
+// ── Квесты (Сезон 2) ─────────────────────────────────────────
+// Таблицы квестов раньше вообще не создавались — /api/quests/* падали
+// с 500 (после чего ещё и getCurrentSeasonDay была не определена).
+// Здесь: схема + сид сезонных квестов + вычисление текущего дня сезона.
+const SEASON_NUMBER = 2;
+// Старт сезона задаётся переменной окружения SEASON_START (ISO-дата);
+// по умолчанию — 1 сентября 2026 UTC.
+const SEASON_START = process.env.SEASON_START
+  ? new Date(process.env.SEASON_START).getTime()
+  : Date.UTC(2026, 8, 1);
+
+function getCurrentSeasonDay() {
+  const day = Math.floor((Date.now() - SEASON_START) / 86_400_000) + 1;
+  return Math.max(1, day);
+}
+
+async function initQuestTables() {
+  try {
+    await db(`
+      CREATE TABLE IF NOT EXISTS quests (
+        id             TEXT PRIMARY KEY,
+        day            INT  NOT NULL,
+        title          TEXT NOT NULL,
+        description    TEXT,
+        reward_crystals INT NOT NULL DEFAULT 10,
+        is_mega        BOOLEAN NOT NULL DEFAULT FALSE,
+        type           TEXT NOT NULL DEFAULT 'manual'
+      )
+    `);
+    await db(`
+      CREATE TABLE IF NOT EXISTS user_quests (
+        user_id      TEXT NOT NULL,
+        quest_id     TEXT NOT NULL,
+        completed_at BIGINT NOT NULL,
+        progress     INT NOT NULL DEFAULT 0,
+        target       INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, quest_id)
+      )
+    `);
+    await db(`CREATE INDEX IF NOT EXISTS idx_user_quests_user ON user_quests(user_id)`);
+    await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_crystals BIGINT NOT NULL DEFAULT 0`);
+    await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_crystals_updated_at BIGINT NOT NULL DEFAULT 0`);
+    // Сид квестов: по одному на каждый из 30 дней сезона. Каждый 7-й день —
+    // мега-квест с увеличенной наградой.
+    const questsSeed = [];
+    for (let day = 1; day <= 30; day++) {
+      const isMega = day % 7 === 0;
+      questsSeed.push([
+        `s${SEASON_NUMBER}d${day}`,
+        day,
+        isMega ? `Мега-квест дня ${day}` : `Квест дня ${day}`,
+        isMega
+          ? 'Особое задание дня — повышенная награда в кристаллах'
+          : 'Ежедневное задание сезона — выполняй и получай кристаллы',
+        isMega ? 50 : 10 + day,
+        isMega,
+        'confirm',
+      ]);
+    }
+    for (const [id, day, title, description, reward, isMega, type] of questsSeed) {
+      await db(
+        `INSERT INTO quests (id, day, title, description, reward_crystals, is_mega, type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
+        [id, day, title, description, reward, isMega, type]
+      );
+    }
+  } catch (e) { console.error('[Quests] init error:', e.message); }
+}
+
+
 async function initDurkaTables() {
   try {
     await db(`CREATE TABLE IF NOT EXISTS durka_players (
@@ -2768,150 +2743,215 @@ setInterval(async () => {
 
 
 const serverChess = (() => {
-  const EMPTY = null;
-  const START_POS = [
-    ['R','w'],['N','w'],['B','w'],['Q','w'],['K','w'],['B','w'],['N','w'],['R','w'],
-    ['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],
-    ...Array(32).fill(EMPTY),
-    ['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],
-    ['R','b'],['N','b'],['B','b'],['Q','b'],['K','b'],['B','b'],['N','b'],['R','b'],
-  ];
-  function startBoard() { return { squares: [...START_POS], turn: 'w', castling: { wK: true, wQ: true, bK: true, bQ: true }, epSquare: -1 }; }
-  function cloneBoard(b) { return { squares: [...b.squares], turn: b.turn, castling: { ...b.castling }, epSquare: b.epSquare }; }
-  function file(sq) { return sq % 8; } function rank(sq) { return Math.floor(sq / 8); } function sq_(r, f) { return r * 8 + f; }
-  function isEnemy(piece, color) { return piece && piece[1] !== color; }
-  function isEmpty(squares, s) { return squares[s] === EMPTY; }
-  function addIfValid(moves, squares, color, from, to) { if (to < 0 || to > 63) return; if (squares[to] && squares[to][1] === color) return; moves.push({ from, to }); }
-  function slideMoves(moves, squares, color, from, dirs) { for (const [dr, df] of dirs) { let r = rank(from) + dr, f = file(from) + df; while (r >= 0 && r < 8 && f >= 0 && f < 8) { const to = sq_(r, f); if (squares[to]) { if (squares[to][1] !== color) moves.push({ from, to }); break; } moves.push({ from, to }); r += dr; f += df; } } }
-  function pseudoLegalMoves(board, fromSq) {
-    const { squares, turn, epSquare } = board;
-    const piece = squares[fromSq]; if (!piece || piece[1] !== turn) return [];
-    const [type, color] = piece; const moves = [];
-    if (type === 'P') {
-      const dir = color === 'w' ? 1 : -1, startRank = color === 'w' ? 1 : 6;
-      const r = rank(fromSq), f = file(fromSq);
-      const fwd = sq_(r + dir, f);
-      if (fwd >= 0 && fwd < 64 && isEmpty(squares, fwd)) { moves.push({ from: fromSq, to: fwd }); if (r === startRank) { const fwd2 = sq_(r + 2 * dir, f); if (isEmpty(squares, fwd2)) moves.push({ from: fromSq, to: fwd2 }); } }
-      for (const df of [-1, 1]) { const nf = f + df; if (nf < 0 || nf > 7) continue; const cap = sq_(r + dir, nf); if (cap >= 0 && cap < 64) { if (isEnemy(squares[cap], color)) moves.push({ from: fromSq, to: cap }); if (cap === epSquare) moves.push({ from: fromSq, to: cap, ep: true }); } }
-    } else if (type === 'N') { for (const [dr, df] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) { const nr = rank(fromSq) + dr, nf = file(fromSq) + df; if (nr >= 0 && nr < 8 && nf >= 0 && nf < 8) addIfValid(moves, squares, color, fromSq, sq_(nr, nf)); }
-    } else if (type === 'B') { slideMoves(moves, squares, color, fromSq, [[-1,-1],[-1,1],[1,-1],[1,1]]);
-    } else if (type === 'R') { slideMoves(moves, squares, color, fromSq, [[-1,0],[1,0],[0,-1],[0,1]]);
-    } else if (type === 'Q') { slideMoves(moves, squares, color, fromSq, [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]);
-    } else if (type === 'K') {
-      for (const [dr, df] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) { const nr = rank(fromSq) + dr, nf = file(fromSq) + df; if (nr >= 0 && nr < 8 && nf >= 0 && nf < 8) addIfValid(moves, squares, color, fromSq, sq_(nr, nf)); }
-      if (color === 'w' && fromSq === 4) { if (board.castling.wK && isEmpty(squares,5) && isEmpty(squares,6) && squares[7]?.[0]==='R') moves.push({ from: fromSq, to: 6, castle: 'K' }); if (board.castling.wQ && isEmpty(squares,1) && isEmpty(squares,2) && isEmpty(squares,3) && squares[0]?.[0]==='R') moves.push({ from: fromSq, to: 2, castle: 'Q' }); }
-      if (color === 'b' && fromSq === 60) { if (board.castling.bK && isEmpty(squares,61) && isEmpty(squares,62) && squares[63]?.[0]==='R') moves.push({ from: fromSq, to: 62, castle: 'K' }); if (board.castling.bQ && isEmpty(squares,57) && isEmpty(squares,58) && isEmpty(squares,59) && squares[56]?.[0]==='R') moves.push({ from: fromSq, to: 58, castle: 'Q' }); }
-    }
-    return moves;
+  // ── Шахматные правила НА chess.js ─────────────────────────────
+  // Раньше здесь был самописный движок (~150 строк: генерация ходов,
+  // шахи, рокировки, взятие на проходе). В нём был баг "призрачной
+  // ладьи": при взятии ладьи на её начальном поле право рокировки
+  // не снималось, и рокировка становилась возможной без ладьи.
+  // Теперь ВСЯ логика правил — в библиотеке chess.js, этот модуль
+  // лишь адаптирует её к внутреннему формату партии:
+  //   board   = { squares: Array(64) из null | [ТИП,'w'|'b'],
+  //               turn: 'w'|'b', castling: {wK,wQ,bK,bQ}, epSquare: idx|-1 }
+  //   move    = { from: 0..63, to: 0..63, promotion?: 'q'|'Q', ep?, castle? }
+  const { Chess } = require('chess.js');
+
+  function indexToSquare(idx) {
+    return String.fromCharCode(97 + (idx % 8)) + (Math.floor(idx / 8) + 1);
   }
-  function isSquareAttacked(squares, sq, byColor) {
-    const opp = byColor;
-    for (const df of [-1, 1]) { const pr = rank(sq) + (opp === 'w' ? -1 : 1), pf = file(sq) + df; if (pr >= 0 && pr < 8 && pf >= 0 && pf < 8) { const p = squares[sq_(pr, pf)]; if (p && p[0] === 'P' && p[1] === opp) return true; } }
-    for (const [dr, df] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) { const r = rank(sq) + dr, f = file(sq) + df; if (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p && p[0] === 'N' && p[1] === opp) return true; } }
-    for (const [dr, df] of [[-1,0],[1,0],[0,-1],[0,1]]) { let r = rank(sq) + dr, f = file(sq) + df; while (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p) { if (p[1] === opp && (p[0] === 'R' || p[0] === 'Q')) return true; break; } r += dr; f += df; } }
-    for (const [dr, df] of [[-1,-1],[-1,1],[1,-1],[1,1]]) { let r = rank(sq) + dr, f = file(sq) + df; while (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p) { if (p[1] === opp && (p[0] === 'B' || p[0] === 'Q')) return true; break; } r += dr; f += df; } }
-    for (const [dr, df] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) { const r = rank(sq) + dr, f = file(sq) + df; if (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p && p[0] === 'K' && p[1] === opp) return true; } }
-    return false;
+  function squareToIndex(sq) {
+    return (sq.charCodeAt(1) - 49) * 8 + (sq.charCodeAt(0) - 97);
   }
-  function findKing(squares, color) { for (let i = 0; i < 64; i++) { if (squares[i] && squares[i][0] === 'K' && squares[i][1] === color) return i; } return -1; }
-  function isInCheck(squares, color) { const kp = findKing(squares, color); if (kp < 0) return true; return isSquareAttacked(squares, kp, color === 'w' ? 'b' : 'w'); }
-  function applyMove(board, move) {
-    const b = cloneBoard(board); const piece = b.squares[move.from]; const [type, color] = piece; const opp = color === 'w' ? 'b' : 'w';
-    b.squares[move.to] = piece; b.squares[move.from] = EMPTY; b.epSquare = -1;
-    if (type === 'P' && move.ep) { b.squares[move.to + (color === 'w' ? -8 : 8)] = EMPTY; }
-    if (type === 'P' && Math.abs(move.to - move.from) === 16) { b.epSquare = (move.from + move.to) >> 1; }
-    if (type === 'P') { const promRank = color === 'w' ? 7 : 0; if (rank(move.to) === promRank) b.squares[move.to] = [move.promotion || 'Q', color]; }
-    if (type === 'K') { if (color === 'w') { b.castling.wK = false; b.castling.wQ = false; } else { b.castling.bK = false; b.castling.bQ = false; } if (move.castle === 'K') { b.squares[color==='w'?5:61] = b.squares[color==='w'?7:63]; b.squares[color==='w'?7:63] = EMPTY; } else if (move.castle === 'Q') { b.squares[color==='w'?3:59] = b.squares[color==='w'?0:56]; b.squares[color==='w'?0:56] = EMPTY; } }
-    if (type === 'R') { if (move.from===0) b.castling.wQ=false; if (move.from===7) b.castling.wK=false; if (move.from===56) b.castling.bQ=false; if (move.from===63) b.castling.bK=false; }
-    b.turn = opp; return b;
-  }
-  function isLegalMove(board, move) {
-    const piece = board.squares[move.from]; if (!piece || piece[1] !== board.turn) return false;
-    const pseudo = pseudoLegalMoves(board, move.from); const found = pseudo.find(m => m.to === move.to); if (!found) return false;
-    if (found.castle) { const color = piece[1], opp = color === 'w' ? 'b' : 'w', kingFrom = color === 'w' ? 4 : 60, throughSq = found.castle === 'K' ? kingFrom + 1 : kingFrom - 1; if (isInCheck(board.squares, color)) return false; if (isSquareAttacked(board.squares, throughSq, opp)) return false; if (isSquareAttacked(board.squares, move.to, opp)) return false; }
-    const after = applyMove(board, found); return !isInCheck(after.squares, piece[1]);
-  }
-  function rebuildBoard(moves) {
-    let board = startBoard();
-    for (const move of (moves || [])) {
-      try {
-        const pseudo = pseudoLegalMoves(board, move.from);
-        const found = pseudo.find(m => m.to === move.to);
-        if (!found) { console.warn('[serverChess] rebuildBoard: нет хода from', move.from, 'to', move.to); break; }
-        if (found.promotion !== undefined || move.promotion) found.promotion = move.promotion || 'Q';
-        board = applyMove(board, found);
-      } catch(e) { console.warn('[serverChess] rebuildBoard error:', e.message); break; }
-    }
-    return board;
-  }
-  function findMove(board, move) {
-    const pseudo = pseudoLegalMoves(board, move.from);
-    const found = pseudo.find(m => m.to === move.to);
-    if (!found) return move;
-    if (move.promotion) found.promotion = move.promotion;
-    return found;
-  }
-  function hasAnyLegalMove(board, color) {
-    for (let sq = 0; sq < 64; sq++) {
-      const piece = board.squares[sq];
-      if (!piece || piece[1] !== color) continue;
-      const pseudo = pseudoLegalMoves({ ...board, turn: color }, sq);
-      for (const m of pseudo) {
-        if (isLegalMove({ ...board, turn: color }, m)) return true;
+
+  // FEN -> board-объект формата партии
+  function boardFromFen(fen) {
+    const c = new Chess(fen);
+    const parts = fen.trim().split(' ');
+    const rows = c.board(); // 8x8, от 8-го ранга к 1-му
+    const squares = Array(64).fill(null);
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const p = rows[r][f];
+        if (p) squares[(7 - r) * 8 + f] = [p.type.toUpperCase(), p.color];
       }
     }
-    return false;
+    const castling = { wK: false, wQ: false, bK: false, bQ: false };
+    if (parts[2] && parts[2] !== '-') {
+      castling.wK = parts[2].includes('K');
+      castling.wQ = parts[2].includes('Q');
+      castling.bK = parts[2].includes('k');
+      castling.bQ = parts[2].includes('q');
+    }
+    return {
+      squares,
+      turn: c.turn(),
+      castling,
+      epSquare: parts[3] && parts[3] !== '-' ? squareToIndex(parts[3]) : -1,
+      _fen: c.fen(),
+    };
   }
-  function isCheckmate(board) { return isInCheck(board.squares, board.turn) && !hasAnyLegalMove(board, board.turn); }
-  function isStalemate(board) { return !isInCheck(board.squares, board.turn) && !hasAnyLegalMove(board, board.turn); }
 
-  // ── Ничьи по правилам (50 ходов / недостаток материала / троекратное
-  // повторение) — раньше сервер их вообще не проверял, потому что клиент
-  // никогда и не заявлял о них (см. баги 2/3 в board.js). Теперь сервер
-  // умеет перепроверить любую такую заявку по реальной истории ходов,
-  // так же как уже делает для мата/пата — иначе клиент мог бы просто
-  // соврать "ничья по повторению" в любой момент партии.
-  function isInsufficientMaterial(squares) {
-    const pieces = squares.filter(Boolean);
-    if (pieces.length === 2) return true; // K-K
-    if (pieces.length === 3) {
-      const minor = pieces.find(p => p[0] === 'B' || p[0] === 'N');
-      if (minor) return true; // K+B-K or K+N-K
+  // board-объект -> FEN (фолбэк для объектов без _fen)
+  function fenFromBoard(b) {
+    let placement = '';
+    for (let r = 7; r >= 0; r--) {
+      let empty = 0;
+      for (let f = 0; f < 8; f++) {
+        const p = b.squares[r * 8 + f];
+        if (!p) { empty++; continue; }
+        if (empty) { placement += empty; empty = 0; }
+        placement += p[1] === 'w' ? p[0] : p[0].toLowerCase();
+      }
+      if (empty) placement += empty;
+      if (r > 0) placement += '/';
     }
+    let cas = '';
+    if (b.castling) {
+      if (b.castling.wK) cas += 'K';
+      if (b.castling.wQ) cas += 'Q';
+      if (b.castling.bK) cas += 'k';
+      if (b.castling.bQ) cas += 'q';
+    }
+    return placement + ' ' + (b.turn || 'w') + ' ' + (cas || '-') + ' '
+      + (b.epSquare >= 0 ? indexToSquare(b.epSquare) : '-') + ' 0 1';
+  }
+
+  function makeChess(b) {
+    try { return new Chess(b._fen || fenFromBoard(b)); } catch (e) { return null; }
+  }
+
+  function cloneBoard(b) {
+    return { squares: [...b.squares], turn: b.turn, castling: { ...b.castling }, epSquare: b.epSquare, _fen: b._fen };
+  }
+
+  function startBoard() {
+    return boardFromFen(new Chess().fen());
+  }
+
+  // Поиск verbose-хода chess.js по формату партии
+  function matchVerboseMove(c, b, move) {
+    const fromSq = indexToSquare(move.from);
+    const toSq = indexToSquare(move.to);
+    const all = c.moves({ square: fromSq, verbose: true }).filter(m => m.to === toSq);
+    if (!all.length) return null;
+    if (move.promotion) {
+      const promo = String(move.promotion).toLowerCase();
+      return all.find(m => m.promotion === promo) || null;
+    }
+    // Превращение без указания фигуры — ферзь (как и раньше)
+    return all.find(m => m.promotion === 'q') || all[0];
+  }
+
+  function verboseToGameMove(v) {
+    return {
+      from: squareToIndex(v.from),
+      to: squareToIndex(v.to),
+      promotion: v.promotion ? v.promotion.toUpperCase() : undefined,
+      castle: v.flags.includes('k') ? 'K' : v.flags.includes('q') ? 'Q' : undefined,
+      ep: v.flags.includes('e') || undefined,
+    };
+  }
+
+  function isLegalMove(board, move) {
+    if (!move || !Number.isInteger(move.from) || !Number.isInteger(move.to)) return false;
+    const piece = board.squares[move.from];
+    if (!piece || piece[1] !== board.turn) return false;
+    const c = makeChess(board);
+    if (!c) return false;
+    return matchVerboseMove(c, board, move) != null;
+  }
+
+  // Возвращает нормализованный ход (с флагами castle/ep/promotion)
+  // либо исходный move, если совпадение не нашлось (как раньше).
+  function findMove(board, move) {
+    const c = makeChess(board);
+    if (!c) return move;
+    const v = matchVerboseMove(c, board, move);
+    return v ? verboseToGameMove(v) : move;
+  }
+
+  function applyMove(board, move) {
+    const c = makeChess(board);
+    if (!c) return cloneBoard(board);
+    const v = matchVerboseMove(c, board, move);
+    if (!v) return cloneBoard(board);
+    c.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: v.promotion || undefined });
+    return boardFromFen(c.fen());
+  }
+
+  // Реплей партии с нуля средствами chess.js: корректно обрабатывает
+  // рокировки, взятия на проходе, превращения, счётчики полуходов.
+  function replayChess(moves) {
+    const c = new Chess();
+    for (const move of (moves || [])) {
+      try {
+        const promo = move.promotion ? String(move.promotion).toLowerCase() : undefined;
+        c.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: promo });
+      } catch (e) {
+        // Пытаемся с ферзём по умолчанию (старое поведение), иначе — прерываем
+        try {
+          c.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: 'q' });
+        } catch (e2) {
+          console.warn('[serverChess] replay: ход не применился:', move && move.from, '->', move && move.to, e2.message);
+          break;
+        }
+      }
+    }
+    return c;
+  }
+
+  function rebuildBoard(moves) {
+    return boardFromFen(replayChess(moves).fen());
+  }
+
+  function hasAnyLegalMove(board, color) {
+    const c = makeChess(board);
+    if (!c) return false;
+    if (color === board.turn) return c.moves().length > 0;
+    // Редкий случай: спрашивают про цвет, который сейчас не ходит —
+    // пересобираем позицию с нужной очередью хода.
+    try {
+      const fen = (board._fen || fenFromBoard(board)).split(' ');
+      fen[1] = color;
+      return new Chess(fen.join(' ')).moves().length > 0;
+    } catch (e) { return false; }
+  }
+
+  function isCheckmate(board) {
+    const c = makeChess(board);
+    return c ? c.isCheckmate() : false;
+  }
+
+  function isStalemate(board) {
+    const c = makeChess(board);
+    return c ? c.isStalemate() : false;
+  }
+
+  // Аргумент — массив squares (как в старом API: isInsufficientMaterial(board.squares))
+  function isInsufficientMaterial(squares) {
+    const probe = (turn) => {
+      try {
+        const fen = fenFromBoard({ squares, turn, castling: { wK: false, wQ: false, bK: false, bQ: false }, epSquare: -1 });
+        return new Chess(fen).isInsufficientMaterial();
+      } catch (e) { return null; }
+    };
+    const r = probe('w');
+    if (r !== null) return r;
+    const r2 = probe('b');
+    if (r2 !== null) return r2;
+    // Совсем экзотический случай (нет королей) — позиция невалидна,
+    // недостаток материала не заявляем.
     return false;
   }
-  // Отпечаток позиции для правила повторения: расстановка + очередь хода +
-  // права рокировки + клетка взятия на проходе (без счётчиков ходов).
-  function positionKey(board) {
-    return board.squares.map(p => p ? p[0] + p[1] : '-').join('') + '|' + board.turn + '|'
-      + (board.castling.wK?'1':'0') + (board.castling.wQ?'1':'0') + (board.castling.bK?'1':'0') + (board.castling.bQ?'1':'0')
-      + '|' + board.epSquare;
+
+  // Троекратное повторение и правило 50 ходов — по полной истории ходов:
+  // chess.js сам ведёт счёт повторений позиций и счётчик полуходов.
+  function isThreefoldRepetition(moves) {
+    try { return replayChess(moves).isThreefoldRepetition(); } catch (e) { return false; }
   }
-  // Реплеим партию с начала, считая: (а) сколько раз встречалась текущая
-  // позиция — для троекратного повторения, (б) полуходов с последнего
-  // взятия/хода пешки — для правила 50 ходов.
-  function replayForDrawRules(moves) {
-    let board = startBoard();
-    const counts = new Map();
-    counts.set(positionKey(board), 1);
-    let halfmove = 0;
-    for (const move of (moves || [])) {
-      const pseudo = pseudoLegalMoves(board, move.from);
-      const found = pseudo.find(m => m.to === move.to);
-      if (!found) break;
-      const piece = board.squares[move.from];
-      const isCapture = !!board.squares[move.to] || found.ep;
-      const isPawn = piece && piece[0] === 'P';
-      if (found.promotion !== undefined || move.promotion) found.promotion = move.promotion || 'Q';
-      board = applyMove(board, found);
-      halfmove = (isCapture || isPawn) ? 0 : halfmove + 1;
-      const key = positionKey(board);
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    return { board, repetitions: counts.get(positionKey(board)) || 1, halfmove };
+
+  function isFiftyMoveRule(moves) {
+    try { return replayChess(moves).isDrawByFiftyMoves(); } catch (e) { return false; }
   }
-  function isThreefoldRepetition(moves) { return replayForDrawRules(moves).repetitions >= 3; }
-  function isFiftyMoveRule(moves) { return replayForDrawRules(moves).halfmove >= 100; }
 
   return { startBoard, isLegalMove, applyMove, cloneBoard, rebuildBoard, findMove, isCheckmate, isStalemate, hasAnyLegalMove, isInsufficientMaterial, isThreefoldRepetition, isFiftyMoveRule };
 })();
@@ -2938,6 +2978,7 @@ async function main() {
 
   await loadBansFromDB();
   await initPuzzleTables();
+  await initQuestTables();
   await initDurkaTables();
   await initClubChatTable();
   await initTournamentChatTable();
@@ -2963,8 +3004,9 @@ async function main() {
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''`);
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fshr_rating INT`);
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fide_rating INT`);
-  // 2FA по email при входе
-  await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE`);
+  // Email/2FA полностью выведены из продукта (email нигде не используется) —
+  // колонка двухфакторки больше не нужна.
+  await db(`ALTER TABLE users DROP COLUMN IF EXISTS two_factor_enabled`);
   // VIP-значок: временный статус (метка времени окончания в мс), выдаётся вручную
   // из админ-панели сайт-админами (см. isVipGranter/requireVipGranter).
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_until BIGINT`);
@@ -3158,16 +3200,6 @@ module.exports = {
   pool,
   db,
   withTransaction,
-  Resend,
-  pendingPasswordChanges,
-  pendingDeletions,
-  pendingEmailLinks,
-  pendingLogins,
-  TWO_FA_RESEND_COOLDOWN_MS,
-  twoFactorLastSent,
-  sendPasswordChangeEmail,
-  sendTwoFactorLoginEmail,
-  sendDeleteAccountEmail,
   BAD_NICK_WORDS,
   normNick,
   nickHasBadWord,
@@ -3332,6 +3364,8 @@ module.exports = {
   handleEditClub,
   handleDeleteClub,
   initPuzzleTables,
+  initQuestTables,
+  getCurrentSeasonDay,
   initDurkaTables,
   durkaKeyMiddleware,
   parsePuzzleSolution,

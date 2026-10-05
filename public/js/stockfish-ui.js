@@ -106,7 +106,17 @@ const StockfishAnalyzer = (() => {
 
     // Check if it's black's perspective
     const isBlackTurn = line.includes(' bm ') || checkBlackTurn();
-    if (isBlackTurn) { evalNum = -evalNum; evalText = evalNum > 0 ? '+' + evalNum.toFixed(2) : evalNum.toFixed(2); }
+    if (isBlackTurn) {
+      evalNum = -evalNum;
+      // БАГ (исправлен): при ходе чёрных формат мата затирался числом
+      // ("-999.00" вместо "M-3"). Корректируем знак мата отдельно.
+      if (scoreMate) {
+        const m = Math.abs(parseInt(scoreMate));
+        evalText = evalNum > 0 ? ('M' + m) : ('M-' + m);
+      } else {
+        evalText = evalNum > 0 ? '+' + evalNum.toFixed(2) : evalNum.toFixed(2);
+      }
+    }
 
     const evalEl = document.getElementById('eval-score');
     if (evalEl) {

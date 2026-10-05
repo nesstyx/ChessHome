@@ -466,7 +466,7 @@
     </div>
   </div>
 
-  <!-- Компактная модалка входа/регистрации/2FA -->
+  <!-- Компактная модалка входа/регистрации -->
   <div class="modal-overlay" id="auth-modal-overlay">
     <div class="auth-modal" id="auth-modal-content"></div>
   </div>
@@ -840,8 +840,8 @@ function onAuthStateResolved(user) {
   if (currentUser) unlockChat(); else lockChat();
 }
 
-// ─── Компактная модалка входа / регистрации / 2FA ───────────────
-let authMode = 'login'; // 'login' | 'register' | '2fa'
+// ─── Компактная модалка входа / регистрации ───────────────
+let authMode = 'login'; // 'login' | 'register'
 let authBusy = false;
 
 function openAuthModal(mode) {
@@ -896,25 +896,7 @@ function renderAuthModal() {
       <button class="submit-btn" id="am-submit" onclick="submitAuthForm()" disabled>Создать аккаунт</button>
       <div class="switch-mode">Уже есть аккаунт? <a onclick="openAuthModal('login')">Войти</a></div>
     `;
-  } else if (authMode === '2fa') {
-    el.innerHTML = `
-      <button class="close-x" onclick="closeAuthModal()">✕</button>
-      <h2>Код подтверждения</h2>
-      <div class="sub">Мы отправили код вам на почту</div>
-      <input id="am-code" class="code-input" inputmode="numeric" maxlength="6" placeholder="______">
-      <div class="err" id="am-err"></div>
-      <button class="submit-btn" id="am-submit" onclick="submitAuthForm()">Подтвердить</button>
-      <div class="switch-mode"><a onclick="openAuthModal('login')">← Назад ко входу</a></div>
-    `;
-    setTimeout(() => {
-      const codeInp = document.getElementById('am-code');
-      codeInp?.focus();
-      codeInp?.addEventListener('input', () => {
-        if (codeInp.value.replace(/\D/g, '').length === 6) submitAuthForm();
-      });
-    }, 50);
   }
-}
 
 async function submitAuthForm() {
   if (authBusy) return;
@@ -930,7 +912,6 @@ async function submitAuthForm() {
       const password = document.getElementById('am-password').value;
       if (!username || !password) throw new Error('Заполните все поля');
       const data = await apiPost('/login', { username, password });
-      if (data.twoFactorRequired) { authMode = '2fa'; renderAuthModal(); authBusy = false; btn.disabled = false; return; }
       finishAuth(data.user);
     } else if (authMode === 'register') {
       const username = document.getElementById('am-username').value.trim();
@@ -941,11 +922,6 @@ async function submitAuthForm() {
       if (!username || !password) throw new Error('Заполните все поля');
       if (!agreeTerms || !agreeFair) throw new Error('Отметьте оба чекбокса ниже');
       const data = await apiPost('/register', { username, password, _hp });
-      finishAuth(data.user);
-    } else if (authMode === '2fa') {
-      const code = document.getElementById('am-code').value.replace(/\D/g, '');
-      if (code.length !== 6) throw new Error('Введите 6-значный код');
-      const data = await apiPost('/login/verify-2fa', { code });
       finishAuth(data.user);
     }
   } catch (err) {

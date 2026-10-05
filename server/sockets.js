@@ -70,11 +70,13 @@ setInterval(() => {
 
 io.on('connection', (socket) => {
   // Socket.io не использует req.ip — читаем заголовок напрямую из handshake.
-  // x-forwarded-for может содержать несколько IP через запятую: "реальный, cloudflare, nginx..."
-  // Берём крайний левый — это и есть реальный IP клиента.
+  // БАГ БЕЗОПАСНОСТИ (исправлен): раньше брали ПЕРВЫЙ элемент x-forwarded-for —
+  // а клиент может прислать собственный поддельный заголовок "X-Forwarded-For: 1.2.3.4",
+  // обойти IP-бан и натравить рейт-лимиты на чужой адрес. Теперь доверяем только
+  // x-real-ip, который выставляет НАШ Nginx (proxy_set_header X-Real-IP $remote_addr;),
+  // а сырой handshake.address остаётся последним фолбэком (адрес самого прокси/клиента).
   const socketIP = (
-    socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim()
-    || socket.handshake.headers['x-real-ip']
+    socket.handshake.headers['x-real-ip']
     || socket.handshake.address
     || 'unknown'
   );
@@ -348,7 +350,17 @@ io.on('connection', (socket) => {
     const color = game.white === socket.username ? 'white' : 'black';
     if (game.berserk[color] || game.moveCounts[color] > 0) return;
     game.berserk[color] = true;
-    const payload = { gameId, color, berserk: game.berserk };
+    // БАГ БЕЗОПАСНОСТИ (исправлен): раньше берсерк только ставил флаг — время
+    // не резалось вдвое и инкремент не обнулялся, но очко за берсерк начислялось.
+    // Бесплатные бонусные очки закрыты: делаем то, что берсерк и должен делать.
+    if (color === 'white') {
+      game.whiteTime = Math.floor((game.whiteTime || 0) / 2);
+    } else {
+      game.blackTime = Math.floor((game.blackTime || 0) / 2);
+    }
+    game.tcIncrement = 0;
+    game.lastMoveAt = game.lastMoveAt || Date.now();
+    const payload = { gameId, color, berserk: game.berserk, whiteTime: game.whiteTime, blackTime: game.blackTime };
     [findSocketByUsername(game.white), findSocketByUsername(game.black)].forEach(s => s?.emit('berserk_activated', payload));
   });
 

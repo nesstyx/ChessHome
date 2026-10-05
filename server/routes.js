@@ -19,15 +19,7 @@ const {
   pool,
   db,
   withTransaction,
-  pendingPasswordChanges,
-  pendingDeletions,
-  pendingEmailLinks,
-  pendingLogins,
-  TWO_FA_RESEND_COOLDOWN_MS,
-  twoFactorLastSent,
-  sendPasswordChangeEmail,
-  sendTwoFactorLoginEmail,
-  sendDeleteAccountEmail,
+  getCurrentSeasonDay,
   nickHasBadWord,
   PROFILE_EMOJIS,
   normForSimilarity,
@@ -433,33 +425,6 @@ app.post('/api/login',
     }
     clearLoginFailStreak(usernameLow);
 
-    // 2FA (issue H1): раньше флаг twoFactorEnabled игнорировался — pendingLogins
-    // никем не заполнялся, письмо не слалось, а /api/login/verify-2fa читал всегда
-    // пустую Map. То есть «включённая» 2FA не защищала ничем. Теперь: при включённой
-    // 2FA пароль подтверждает первый фактор, JWT выдаётся ТОЛЬКО после кода из письма.
-    if (user.twoFactorEnabled && user.email) {
-      const lastSent = twoFactorLastSent.get(usernameLow) || 0;
-      if (Date.now() - lastSent < TWO_FA_RESEND_COOLDOWN_MS) {
-        return res.status(429).json({ error: 'Код уже отправлен. Проверьте почту (повтор через полминуты).' });
-      }
-      const code = String(crypto.randomInt(100000, 1000000));
-      pendingLogins.set(code, { username: user.username, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000, attempts: 0 });
-      twoFactorLastSent.set(usernameLow, Date.now());
-      // Периодическая чистка просроченных кодов (иначе Map растёт без предела)
-      if (pendingLogins.size > 1000) {
-        const now = Date.now();
-        for (const [k, v] of pendingLogins.entries()) if (now > v.expiresAt) pendingLogins.delete(k);
-      }
-      try {
-        await sendTwoFactorLoginEmail(user.email, code);
-      } catch (e) {
-        pendingLogins.delete(code);
-        console.error('[2FA] send error:', e.message);
-        return res.status(502).json({ error: 'Не удалось отправить код на почту. Попробуйте позже.' });
-      }
-      return res.json({ twoFactorRequired: true, message: 'Код подтверждения отправлен на вашу почту' });
-    }
-
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('ch_token', token, AUTH_COOKIE_OPTS);
     res.json({ user: sanitizeUser(user, true) });
@@ -468,43 +433,6 @@ app.post('/api/login',
     res.status(500).json({ error: 'Внутренняя ошибка сервера при входе. Попробуйте ещё раз.' });
   }
 });
-
-
-app.post('/api/login/verify-2fa',
-  rateLimit(limiterAuth, 'Слишком много попыток. Подождите минуту.'),
-  ipBanMiddleware,
-  async (req, res) => {
-    const { username, code } = req.body;
-    if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Введите код' });
-    if (!username) return res.status(400).json({ error: 'Укажите имя пользователя' });
-
-    // Ищем код по значению (код приходит в письме, username подтверждает владельца).
-    // Счётчик попыток (issue H1): раньше код можно было подбирать бесконечно.
-    const pending = pendingLogins.get(code.trim());
-    if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-    if (pending.username.toLowerCase() !== String(username).toLowerCase()) {
-      return res.status(400).json({ error: 'Неверный код' });
-    }
-    if (Date.now() > pending.expiresAt) {
-      pendingLogins.delete(code.trim());
-      return res.status(400).json({ error: 'Код истёк. Войдите заново.' });
-    }
-    pending.attempts++;
-    if (pending.attempts > 5) {
-      pendingLogins.delete(code.trim());
-      return res.status(429).json({ error: 'Слишком много попыток. Войдите заново.' });
-    }
-
-    const user = await getUser(pending.username.toLowerCase());
-    pendingLogins.delete(code.trim());
-    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-    if (user.banned) return res.status(403).json({ error: `Заблокирован: ${user.banReason || ''}` });
-
-    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('ch_token', token, AUTH_COOKIE_OPTS);
-    res.json({ user: sanitizeUser(user, true) });
-  }
-);
 
 
 app.post('/api/logout', (req, res) => {
@@ -524,140 +452,28 @@ app.get('/api/users/search', async (req, res) => {
 app.get('/api/me', authMiddleware, async (req, res) => {
   const me = await getUser(req.user.username.toLowerCase());
   if (!me) return res.status(401).json({ error: 'Не найден' });
-  // twoFactorEnabled/email — настройки безопасности самого пользователя,
-  // не публичный профиль, поэтому их нет в sanitizeUser (используется и для чужих профилей).
-  res.json({ ...sanitizeUser(me, true), twoFactorEnabled: !!me.twoFactorEnabled, email: me.email || null });
+  res.json(sanitizeUser(me, true));
 });
 
 
-app.post('/api/account/2fa/toggle', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов. Попробуйте позже.'), async (req, res) => {
-  const { enabled } = req.body;
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (enabled && !user.email) return res.status(400).json({ error: 'Для 2FA нужен привязанный email' });
-
-  user.twoFactorEnabled = !!enabled;
-  await db('UPDATE users SET two_factor_enabled=$1 WHERE id=$2', [user.twoFactorEnabled, user.id]);
-  cacheUser(user);
-  res.json({ ok: true, twoFactorEnabled: user.twoFactorEnabled });
-});
-
-
-app.post('/api/account/request-password-change', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов. Попробуйте позже.'), async (req, res) => {
-  const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6)
-    return res.status(400).json({ error: 'Новый пароль минимум 6 символов' });
-
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (!user.email) return res.status(400).json({ error: 'Email не привязан к аккаунту' });
-
-  // Криптостойкий код (issue M2): Math.random — не криптографический PRNG.
-  const code = String(crypto.randomInt(100000, 1000000));
-  const newHash = await bcrypt.hash(newPassword, 10);
-
-  for (const [k, v] of pendingPasswordChanges.entries()) {
-    if (v.username === user.username) pendingPasswordChanges.delete(k);
+// ── Удаление аккаунта ────────────────────────────────────────
+// Раньше удаление требовало код из письма: но email из продукта выведен
+// (нигде не используется), поэтому подтверждение теперь — текущим паролем.
+// Кроме того, старый confirm-delete использовал client.query без определённого
+// client (ReferenceError при любом запросе, 500) — вся очистка данных теперь
+// идёт через withTransaction из core.js, атомарно.
+app.post('/api/account/delete', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
+  const { password } = req.body;
+  if (typeof password !== 'string' || !password) {
+    return res.status(400).json({ error: 'Укажите пароль для подтверждения' });
   }
-
-  pendingPasswordChanges.set(code, {
-    username: user.username,
-    newHash,
-    expiresAt: Date.now() + 15 * 60 * 1000,
-  });
-
-  try {
-    await Promise.race([
-      sendPasswordChangeEmail(user.email, code),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
-    ]);
-    res.json({ ok: true, message: 'Код подтверждения отправлен на ' + user.email });
-  } catch (err) {
-    console.error('[PasswordChange]', err.message);
-    pendingPasswordChanges.delete(code);
-    res.status(500).json({ error: 'Не удалось отправить письмо: ' + err.message });
-  }
-});
-
-
-app.post('/api/account/confirm-password-change', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Введите код' });
-
-  const pending = pendingPasswordChanges.get(String(code));
-  if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-  if (Date.now() > pending.expiresAt) {
-    pendingPasswordChanges.delete(String(code));
-    return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
-  }
-  if (pending.username !== req.user.username)
-    return res.status(403).json({ error: 'Код не принадлежит этому аккаунту' });
-
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-
-  user.passwordHash = pending.newHash;
-  await db('UPDATE users SET password_hash=$1 WHERE id=$2', [user.passwordHash, user.id]);
-  cacheUser(user);
-  pendingPasswordChanges.delete(String(code));
-
-  const sock = findSocketByUsername(user.username);
-  if (sock) { sock.emit('session_expired', 'Пароль изменён'); sock.disconnect(); }
-
-  res.json({ ok: true, message: 'Пароль успешно изменён' });
-});
-
-
-app.post('/api/account/request-delete', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов.'), async (req, res) => {
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (user.role === 'admin') return res.status(403).json({ error: 'Нельзя удалить аккаунт администратора' });
-  if (!user.email) return res.status(400).json({ error: 'Email не привязан к аккаунту' });
-
-  // Криптостойкий код (issue M2): Math.random — не криптографический PRNG.
-  const code = String(crypto.randomInt(100000, 1000000));
-
-  for (const [k, v] of pendingDeletions.entries()) {
-    if (v.username === user.username) pendingDeletions.delete(k);
-  }
-
-  pendingDeletions.set(code, {
-    username: user.username,
-    expiresAt: Date.now() + 15 * 60 * 1000,
-  });
-
-  try {
-    await Promise.race([
-      sendDeleteAccountEmail(user.email, user.username, code),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
-    ]);
-    res.json({ ok: true, message: 'Код подтверждения отправлен на ' + user.email });
-  } catch (err) {
-    console.error('[DeleteAccount]', err.message);
-    pendingDeletions.delete(code);
-    res.status(500).json({ error: 'Не удалось отправить письмо: ' + err.message });
-  }
-});
-
-
-app.post('/api/account/confirm-delete', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Введите код' });
-
-  const pending = pendingDeletions.get(String(code));
-  if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-  if (Date.now() > pending.expiresAt) {
-    pendingDeletions.delete(String(code));
-    return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
-  }
-  if (pending.username !== req.user.username)
-    return res.status(403).json({ error: 'Код не принадлежит этому аккаунту' });
 
   const user = await getUser(req.user.username.toLowerCase());
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
   if (user.role === 'admin') return res.status(403).json({ error: 'Нельзя удалить аккаунт администратора' });
-
-  pendingDeletions.delete(String(code));
+  if (!await bcrypt.compare(password, user.passwordHash)) {
+    return res.status(401).json({ error: 'Неверный пароль' });
+  }
 
   try {
     await db(`
@@ -668,38 +484,42 @@ app.post('/api/account/confirm-delete', authMiddleware, rateLimit(limiterAuth, '
     `);
     await db('INSERT INTO deleted_usernames (username_low, deleted_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.username.toLowerCase(), Date.now()]);
 
-    // Полная очистка (issue #50): раньше удалялась только строка из users —
-    // оставались сообщения чатов/ЛС/клубов, подписки, попытки задач,
-    // рекламации. Удаляем данные пользователя в транзакции. Каждая таблица
-    // проверяется через to_regclass: в транзакции PostgreSQL любая ошибка
-    // (например, отсутствующая таблица) абортит ВСЮ транзакцию, поэтому
-    // «мягкие» try/catch вокруг отдельных DELETE здесь не работают.
-    const tableExists = async (name) => {
-      const r = await client.query('SELECT to_regclass($1) AS t', [`public.${name}`]);
-      return !!r.rows[0]?.t;
-    };
-    await client.query('DELETE FROM users WHERE id = $1', [user.id]);
-    if (await tableExists('dm_messages')) {
-      await client.query('DELETE FROM dm_messages WHERE from_user = $1 OR to_user = $1', [user.username]);
-    }
-    if (await tableExists('dm_blocks')) {
-      await client.query('DELETE FROM dm_blocks WHERE blocker = $1 OR blocked = $1', [user.username]);
-    }
-    if (await tableExists('follows')) {
-      await client.query('DELETE FROM follows WHERE follower = $1 OR following = $1', [user.username]);
-    }
-    if (await tableExists('puzzle_attempts')) {
-      await client.query('DELETE FROM puzzle_attempts WHERE username = $1', [user.username]);
-    }
-    if (await tableExists('reports')) {
-      await client.query('DELETE FROM reports WHERE reporter = $1', [user.username]);
-    }
-    if (await tableExists('appeals')) {
-      await client.query('DELETE FROM appeals WHERE username = $1', [user.username]);
-    }
-    if (await tableExists('club_members')) {
-      await client.query('DELETE FROM club_members WHERE username = $1', [user.username]);
-    }
+    // Полная очистка (issue #50) в ОДНОЙ транзакции: удаление пользователя,
+    // ЛС, блокировок, подписок, попыток задач, жалоб, обращений, членства
+    // в клубах. Каждая таблица проверяется через to_regclass: в транзакции
+    // PostgreSQL любая ошибка (например, отсутствующая таблица) абортит ВСЮ
+    // транзакцию, поэтому «мягкие» try/catch вокруг отдельных DELETE не работают.
+    await withTransaction(async (client) => {
+      const tableExists = async (name) => {
+        const r = await client.query('SELECT to_regclass($1) AS t', [`public.${name}`]);
+        return !!r.rows[0]?.t;
+      };
+      await client.query('DELETE FROM users WHERE id = $1', [user.id]);
+      if (await tableExists('dm_messages')) {
+        await client.query('DELETE FROM dm_messages WHERE from_user = $1 OR to_user = $1', [user.username]);
+      }
+      if (await tableExists('dm_blocks')) {
+        await client.query('DELETE FROM dm_blocks WHERE blocker = $1 OR blocked = $1', [user.username]);
+      }
+      if (await tableExists('follows')) {
+        await client.query('DELETE FROM follows WHERE follower = $1 OR following = $1', [user.username]);
+      }
+      if (await tableExists('puzzle_attempts')) {
+        // Колонки username в puzzle_attempts нет (только user_id) — старый
+        // код с "WHERE username" абортит транзакцию после первого же запуска.
+        await client.query('DELETE FROM puzzle_attempts WHERE user_id = $1', [user.id]);
+      }
+      if (await tableExists('reports')) {
+        await client.query('DELETE FROM reports WHERE reporter = $1', [user.username]);
+      }
+      if (await tableExists('appeals')) {
+        await client.query('DELETE FROM appeals WHERE username = $1', [user.username]);
+      }
+      if (await tableExists('club_members')) {
+        await client.query('DELETE FROM club_members WHERE username = $1', [user.username]);
+      }
+    });
+
     // Чат-история — вне транзакции (функции core, у них свои запросы)
     await removeUserChatMessages(user.username).catch(() => {});
     usersCache.delete(user.username.toLowerCase());
@@ -710,63 +530,9 @@ app.post('/api/account/confirm-delete', authMiddleware, rateLimit(limiterAuth, '
     console.log(`[DeleteAccount] Аккаунт удалён: ${user.username}`);
     res.json({ ok: true, message: 'Аккаунт удалён' });
   } catch (err) {
-    console.error('[DeleteAccount confirm]', err.message);
+    console.error('[DeleteAccount]', err.message);
     res.status(500).json({ error: 'Ошибка при удалении: ' + err.message });
   }
-});
-
-
-// ── Привязка email (issue #50, часть 2) ─────────────────────
-// Раньше email-поле было только в момент создания (и всегда null: форма
-// регистрации не спрашивает почту), а эндпоинта привязки не существовало.
-// Из-за этого удаление аккаунта (и смена пароля) было недостижимо: оба
-// требуют привязанной почты для кода подтверждения.
-app.post('/api/account/request-email-link', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов.'), async (req, res) => {
-  const { email } = req.body;
-  const emailNorm = String(email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailNorm)) return res.status(400).json({ error: 'Некорректный email' });
-
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (user.email === emailNorm) return res.status(400).json({ error: 'Этот email уже привязан' });
-
-  // Email не должен быть занят другим аккаунтом
-  const taken = await db('SELECT username FROM users WHERE email = $1 LIMIT 1', [emailNorm]);
-  if (taken.rows[0]) return res.status(409).json({ error: 'Этот email уже используется другим аккаунтом' });
-
-  const code = String(crypto.randomInt(100000, 1000000));
-  pendingEmailLinks.set(code, { username: user.username, email: emailNorm, expiresAt: Date.now() + 15 * 60 * 1000 });
-
-  try {
-    await sendDeleteAccountEmail(emailNorm, user.username, code); // тот же шаблон «код подтверждения»
-    res.json({ ok: true, message: 'Код подтверждения отправлен на ' + emailNorm });
-  } catch (err) {
-    pendingEmailLinks.delete(code);
-    console.error('[EmailLink]', err.message);
-    res.status(500).json({ error: 'Не удалось отправить письмо: ' + err.message });
-  }
-});
-
-app.post('/api/account/confirm-email-link', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Введите код' });
-
-  const pending = pendingEmailLinks.get(String(code));
-  if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-  if (Date.now() > pending.expiresAt) {
-    pendingEmailLinks.delete(String(code));
-    return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
-  }
-  if (pending.username !== req.user.username) return res.status(403).json({ error: 'Код не принадлежит этому аккаунту' });
-
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-
-  user.email = pending.email;
-  await db('UPDATE users SET email=$1 WHERE id=$2', [user.email, user.id]);
-  cacheUser(user);
-  pendingEmailLinks.delete(String(code));
-  res.json({ ok: true, email: user.email, message: 'Email привязан' });
 });
 
 
@@ -2159,7 +1925,11 @@ app.post('/api/dm/block', authMiddleware, async (req, res) => {
   const me = req.user.username;
   const { username } = req.body;
   if (!username || username.toLowerCase() === me.toLowerCase()) return res.status(400).json({ error: 'Неверный запрос' });
-  await db('INSERT INTO dm_blocks (blocker, blocked, ts) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [me, username, new Date().toISOString()]);
+  // БАГ (исправлен): в запрос передавалась несуществующая переменная e
+  // (ReferenceError при любой блокировке) — должно быть me. Заодно
+  // new Date().toISOString() -> Date.now(): колонка dm_blocks.ts — BIGINT
+  // (тот же класс бага, что и с createdAt клубов).
+  await db('INSERT INTO dm_blocks (blocker, blocked, ts) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [me, username, Date.now()]);
   res.json({ ok: true });
 });
 
@@ -3483,7 +3253,9 @@ app.post('/api/clubs', authMiddleware, rateLimit(limiterStrict), async (req, res
   if (memberOf >= 10) return res.status(400).json({ error: 'Вы уже состоите в 10 клубах (максимум)' });
   if (clubs.find(c => c.name.toLowerCase() === trimmedName.toLowerCase())) return res.status(400).json({ error: 'Клуб с таким названием уже существует' });
   const id = uuidv4();
-  const club = { id, name: trimmedName, description: (description || '').toString().trim().slice(0, 500), createdAt: new Date().toISOString(), createdBy: me.username, admins: [me.username], members: [me.username], memberCount: 1, official: false };
+  // БАГ (исправлен): createdAt был new Date().toISOString() — строка в BIGINT-колонку
+  // clubs.created_at (invalid input syntax for type bigint). Теперь числовой таймстемп.
+  const club = { id, name: trimmedName, description: (description || '').toString().trim().slice(0, 500), createdAt: Date.now(), createdBy: me.username, admins: [me.username], members: [me.username], memberCount: 1, official: false };
   clubs.push(club);
   await saveClub(club);
   res.json(club);
@@ -3558,13 +3330,17 @@ app.post('/api/user/profile', authMiddleware, async (req, res) => {
     if (bio != null && typeof bio !== 'string') return res.status(400).json({ error: 'Неверное описание' });
     bio = cleanBio(bio || '').slice(0, 400);
 
+    // БАГ (исправлен): раньше проверка Number.isFinite выполнялась ДО
+    // нормализации пустой строки — стертое в поле значение ("") отбивалось
+    // ошибкой 400, и очистить рейтинг было невозможно. Теперь сначала
+    // нормализуем "" -> null, затем валидируем оставшиеся значения.
+    fshrRating = (fshrRating === '' || fshrRating === undefined) ? null : fshrRating;
+    fideRating = (fideRating === '' || fideRating === undefined) ? null : fideRating;
     for (const [label, val] of [['ФШР', fshrRating], ['FIDE', fideRating]]) {
       if (val !== null && val !== undefined && (!Number.isFinite(val) || val < 0 || val > 4000)) {
         return res.status(400).json({ error: `Рейтинг ${label} должен быть числом от 0 до 4000` });
       }
     }
-    fshrRating = (fshrRating === '' || fshrRating === undefined) ? null : fshrRating;
-    fideRating = (fideRating === '' || fideRating === undefined) ? null : fideRating;
 
     const user = await getUser(req.user.username.toLowerCase());
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -3972,7 +3748,6 @@ app.get('/api/puzzles', async (req, res) => {
       sql = `
         SELECT p.*,
           pa.correct  AS _correct,
-          pa.failed   AS _failed,
           CASE
             WHEN pa.id IS NULL        THEN 0
             WHEN pa.correct = false   THEN 1
@@ -4041,8 +3816,11 @@ app.post('/api/puzzles/:id/move', authMiddleware, rateLimit(limiterStrict), asyn
 
     const expectedRaw = playerMoves[moveIndex];
     if (!expectedRaw) return res.status(400).json({ error: 'Некорректный moveIndex' });
-    const playerMove    = (move || '').toLowerCase().trim();
-    const acceptedMoves = expectedRaw.split('|').map(m => m.trim());
+    // Клиент присылает чистый UCI без символов шаха/мата ("a2a8"), а в
+    // решениях они могут быть ("a2a8#") — сравниваем нормализованно.
+    const stripAnno = (v) => v.replace(/[+#!?]/g, '');
+    const playerMove    = stripAnno((move || '').toLowerCase().trim());
+    const acceptedMoves = expectedRaw.split('|').map(m => stripAnno(m.trim().toLowerCase()));
     let correct = acceptedMoves.includes(playerMove)
       || acceptedMoves.some(m => m.length===4 && playerMove.startsWith(m))
       || acceptedMoves.some(m => m.length===5 && m.endsWith('q') && playerMove===m.slice(0,4));
@@ -4074,8 +3852,11 @@ app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), a
     const correct = playerMoves.length > 0 &&
       userPlayerMoves.length === playerMoves.length &&
       playerMoves.every((m, i) => {
-        const variants = m.split('|').map(v => v.trim());
-        const played   = (userPlayerMoves[i] || '').toLowerCase().trim();
+        // Нормализация шах/мат-аннотаций: клиент шлёт чистый UCI ("a2a8"),
+        // в решениях может быть "a2a8#".
+        const stripAnno = (v) => v.replace(/[+#!?]/g, '');
+        const variants = m.split('|').map(v => stripAnno(v.trim().toLowerCase()));
+        const played   = stripAnno((userPlayerMoves[i] || '').toLowerCase().trim());
         return variants.includes(played)
           || variants.some(v => v.length===4 && played.startsWith(v))
           || variants.some(v => v.length===5 && v.endsWith('q') && played===v.slice(0,4));
@@ -4591,7 +4372,7 @@ app.get('/game/:gameId', async (req, res) => {
         <div class="move-list" id="moveList"></div>
       </div>
 
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+      <script src="/js/vendor/chess.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboard2@0.5.0/dist/chessboard2.min.js"></script>
       <script>
         const moves = ${movesJson};
@@ -4612,7 +4393,7 @@ app.get('/game/:gameId', async (req, res) => {
             const from = numberToAlgebraic(mv.from);
             const to = numberToAlgebraic(mv.to);
             const promotion = mv.promotion ? mv.promotion.toLowerCase() : undefined;
-            gameState.move({ from, to, promotion });
+            try { gameState.move({ from, to, promotion }); } catch (e) { /* пропускаем битые записи */ }
           }
           if (board) { try { board.position(gameState.fen()); } catch(e) {} }
         }
@@ -4669,7 +4450,7 @@ app.get('/game/:gameId', async (req, res) => {
             const from = numberToAlgebraic(mv.from);
             const to = numberToAlgebraic(mv.to);
             const promotion = mv.promotion ? mv.promotion.toLowerCase() : undefined;
-            pgnGame.move({ from, to, promotion });
+            try { pgnGame.move({ from, to, promotion }); } catch (e) { /* пропускаем битые записи */ }
           }
           let pgn = '';
           for (const [key, value] of Object.entries(headers)) {

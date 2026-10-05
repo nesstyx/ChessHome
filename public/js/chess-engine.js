@@ -1,66 +1,83 @@
-// ══════════════════════════════════════════════════════════════════
-//  Chess Home — Полная логика шахмат
-//  Включает: генерацию ходов, проверку шаха, мат, пат, рокировку,
-//  взятие на проходе, превращение пешки, FEN, PGN
-// ══════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  Chess Home — Шахматная логика НА chess.js
+// ════════════════════════════════════════════════════════════════
+//  Раньше здесь был самописный движок (генерация ходов, шахи, мат,
+//  рокировки, взятие на проходе, FEN/SAN/PGN — ~500 строк). Теперь
+//  ВСЯ правила шахмат реализует библиотека chess.js (глобальный
+//  объект Chess из /js/vendor/chess.js), а этот файл — тонкий
+//  адаптер, который сохраняет прежний API ChessEngine.* для
+//  board.js / app.js / editor.js / opening-board.js / tv.js /
+//  engine-play.html, чтобы ничего из них не пришлось переписывать.
+//
+//  Формат состояния (совместим со старым движком):
+//    state.board   — Array(64), клетка: null | {type:'K'.., color:'w'|'b'}
+//    state.turn    — 'w' | 'b'
+//    state.castling— {K,Q,k,q}
+//    state.enPassant — индекс клетки взятия на проходе | null
+//    state.halfmove, state.fullmove — счётчики
+//    state.history — [{from,to,piece,captured,promotion,fen,san}]
+//    state.capturedWhite / capturedBlack — взятые фигуры
+//  Ходы: {from: 0..63, to: 0..63, promotion?: 'Q'|'R'|'B'|'N',
+//         castle?: 'K'|'Q', enPassant?: true, doublePush?: true}
+// ════════════════════════════════════════════════════════════════
 
 const ChessEngine = (() => {
 
-  // ─── КОНСТАНТЫ ────────────────────────────────────────────────
-  const PIECES = { K:'K', Q:'Q', R:'R', B:'B', N:'N', P:'P' };
   const WHITE = 'w', BLACK = 'b';
 
   const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-  // ─── СОСТОЯНИЕ ────────────────────────────────────────────────
+  // ─── Координаты (чистые утилиты, без правил) ─────────────────
+  function squareToIndex(sq) {
+    const f = sq.charCodeAt(0) - 97;
+    const r = parseInt(sq[1]) - 1;
+    return r * 8 + f;
+  }
+
+  function indexToSquare(idx) {
+    const f = idx % 8;
+    const r = Math.floor(idx / 8);
+    return String.fromCharCode(97 + f) + (r + 1);
+  }
+
+  function rank(idx) { return Math.floor(idx / 8); }
+  function file(idx) { return idx % 8; }
+  function opposite(color) { return color === WHITE ? BLACK : WHITE; }
+
+  // ─── Состояние ───────────────────────────────────────────────
   function createState() {
     return {
       board: Array(64).fill(null),
       turn: WHITE,
       castling: { K: true, Q: true, k: true, q: true },
-      enPassant: null, // square index or null
+      enPassant: null,
       halfmove: 0,
       fullmove: 1,
-      history: [],     // [{from, to, piece, captured, promotion, fen, san}]
+      history: [],
       capturedWhite: [],
       capturedBlack: []
     };
   }
 
-  // ─── FEN ──────────────────────────────────────────────────────
-  function parseFEN(fen) {
-    const state = createState();
-    const parts = fen.trim().split(' ');
-    const rows = parts[0].split('/');
-
-    let idx = 0;
-    for (let r = 7; r >= 0; r--) {
-      for (const ch of rows[7 - r]) {
-        if ('12345678'.includes(ch)) { idx += parseInt(ch); }
-        else {
-          const color = ch === ch.toUpperCase() ? WHITE : BLACK;
-          const type = ch.toUpperCase();
-          state.board[r * 8 + (idx % 8)] = { type, color };
-          idx++;
-        }
-      }
-    }
-
-    state.turn = parts[1] || WHITE;
-
-    if (parts[2] && parts[2] !== '-') {
-      state.castling.K = parts[2].includes('K');
-      state.castling.Q = parts[2].includes('Q');
-      state.castling.k = parts[2].includes('k');
-      state.castling.q = parts[2].includes('q');
-    }
-
-    state.enPassant = parts[3] && parts[3] !== '-' ? squareToIndex(parts[3]) : null;
-    state.halfmove = parseInt(parts[4]) || 0;
-    state.fullmove = parseInt(parts[5]) || 1;
-    return state;
+  function deepClone(state) {
+    return {
+      board: state.board.map(p => p ? { ...p } : null),
+      turn: state.turn,
+      castling: { ...state.castling },
+      enPassant: state.enPassant,
+      halfmove: state.halfmove,
+      fullmove: state.fullmove,
+      history: [...state.history],
+      capturedWhite: [...state.capturedWhite],
+      capturedBlack: [...state.capturedBlack]
+    };
   }
 
+  // ─── Мост в chess.js ─────────────────────────────────────────
+  // Собираем FEN из полей состояния вручную: состояние может быть
+  // построено снаружи (редактор позиций) и не обязано быть валидной
+  // партией. chess.js валидирует позицию при загрузке — это и есть
+  // проверка корректности, ошибки пробрасываются наверх.
   function toFEN(state) {
     let fen = '';
     for (let r = 7; r >= 0; r--) {
@@ -76,255 +93,132 @@ const ChessEngine = (() => {
       if (empty) fen += empty;
       if (r > 0) fen += '/';
     }
-    fen += ' ' + state.turn;
+    fen += ' ' + (state.turn || WHITE);
     let cas = '';
-    if (state.castling.K) cas += 'K';
-    if (state.castling.Q) cas += 'Q';
-    if (state.castling.k) cas += 'k';
-    if (state.castling.q) cas += 'q';
+    if (state.castling) {
+      if (state.castling.K) cas += 'K';
+      if (state.castling.Q) cas += 'Q';
+      if (state.castling.k) cas += 'k';
+      if (state.castling.q) cas += 'q';
+    }
     fen += ' ' + (cas || '-');
-    fen += ' ' + (state.enPassant !== null ? indexToSquare(state.enPassant) : '-');
-    fen += ' ' + state.halfmove + ' ' + state.fullmove;
+    fen += ' ' + (state.enPassant !== null && state.enPassant !== undefined ? indexToSquare(state.enPassant) : '-');
+    fen += ' ' + (state.halfmove || 0) + ' ' + (state.fullmove || 1);
     return fen;
   }
 
-  // ─── КООРДИНАТЫ ───────────────────────────────────────────────
-  function squareToIndex(sq) {
-    const f = sq.charCodeAt(0) - 97;
-    const r = parseInt(sq[1]) - 1;
-    return r * 8 + f;
+  // Собирает состояние из FEN через chess.js (бросает ошибку на
+  // невалидную позицию — как и должно: теперь FEN проверяется).
+  function parseFEN(fen) {
+    const chess = new Chess(fen);
+    const st = fenToState(chess.fen());
+    return st;
   }
 
-  function indexToSquare(idx) {
-    const f = idx % 8;
-    const r = Math.floor(idx / 8);
-    return String.fromCharCode(97 + f) + (r + 1);
-  }
-
-  function rank(idx) { return Math.floor(idx / 8); }
-  function file(idx) { return idx % 8; }
-
-  // ─── ГЕНЕРАЦИЯ ПСЕВДО-ХОДОВ ───────────────────────────────────
-  function pseudoMoves(state, sq) {
-    const piece = state.board[sq];
-    if (!piece) return [];
-    const moves = [];
-    const { type, color } = piece;
-    const dir = color === WHITE ? 1 : -1;
-
-    const add = (to, flags = {}) => moves.push({ from: sq, to, ...flags });
-
-    const slide = (deltas) => {
-      for (const [df, dr] of deltas) {
-        let f = file(sq) + df, r = rank(sq) + dr;
-        while (f >= 0 && f < 8 && r >= 0 && r < 8) {
-          const target = r * 8 + f;
-          const tp = state.board[target];
-          if (tp) { if (tp.color !== color) add(target); break; }
-          add(target);
-          f += df; r += dr;
-        }
+  function fenToState(fen) {
+    const chess = new Chess(fen);
+    const parts = fen.trim().split(' ');
+    const board = Array(64).fill(null);
+    const rows = chess.board(); // 8x8 от 8-го ранга к 1-му
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const p = rows[r][f];
+        if (p) board[(7 - r) * 8 + f] = { type: p.type.toUpperCase(), color: p.color };
       }
+    }
+    const castling = { K: false, Q: false, k: false, q: false };
+    if (parts[2] && parts[2] !== '-') {
+      castling.K = parts[2].includes('K');
+      castling.Q = parts[2].includes('Q');
+      castling.k = parts[2].includes('k');
+      castling.q = parts[2].includes('q');
+    }
+    return {
+      board,
+      turn: chess.turn(),
+      castling,
+      enPassant: parts[3] && parts[3] !== '-' ? squareToIndex(parts[3]) : null,
+      halfmove: parseInt(parts[4]) || 0,
+      fullmove: parseInt(parts[5]) || 1,
+      history: [],
+      capturedWhite: [],
+      capturedBlack: []
     };
+  }
 
-    const jump = (deltas) => {
-      for (const [df, dr] of deltas) {
-        const f2 = file(sq) + df, r2 = rank(sq) + dr;
-        if (f2 < 0 || f2 > 7 || r2 < 0 || r2 > 7) continue;
-        const target = r2 * 8 + f2;
-        const tp = state.board[target];
-        if (!tp || tp.color !== color) add(target);
-      }
+  // Загружает состояние в chess.js; при невалидной позиции
+  // (например, в редакторе без королей) возвращает null.
+  function makeChess(state) {
+    try { return new Chess(toFEN(state)); } catch (e) { return null; }
+  }
+
+  // Приводит verbose-ход chess.js к формату старого ChessEngine.
+  function verboseToMove(v, fromIdx) {
+    return {
+      from: fromIdx,
+      to: squareToIndex(v.to),
+      promotion: v.promotion ? v.promotion.toUpperCase() : undefined,
+      castle: v.flags.includes('k') ? 'K' : v.flags.includes('q') ? 'Q' : undefined,
+      enPassant: v.flags.includes('e') || undefined,
+      doublePush: v.flags.includes('b') || undefined
     };
-
-    switch (type) {
-      case 'P': {
-        const r1 = rank(sq), f1 = file(sq);
-        const fwd = sq + dir * 8;
-        // Forward
-        if (rank(fwd) >= 0 && rank(fwd) < 8 && !state.board[fwd]) {
-          if (rank(fwd) === (color === WHITE ? 7 : 0)) {
-            for (const promo of ['Q','R','B','N']) add(fwd, { promotion: promo });
-          } else {
-            add(fwd);
-            // Double push
-            const startRank = color === WHITE ? 1 : 6;
-            const fwd2 = sq + dir * 16;
-            if (r1 === startRank && !state.board[fwd2]) add(fwd2, { doublePush: true });
-          }
-        }
-        // Captures
-        for (const df of [-1, 1]) {
-          const f2 = f1 + df;
-          if (f2 < 0 || f2 > 7) continue;
-          const cap = fwd - (f1 - f2);  // Actually fwd ± df doesn't work cleanly, recalc:
-          const capSq = (r1 + dir) * 8 + f2;
-          if (capSq < 0 || capSq >= 64) continue;
-          const tp = state.board[capSq];
-          if (tp && tp.color !== color) {
-            if (rank(capSq) === (color === WHITE ? 7 : 0)) {
-              for (const promo of ['Q','R','B','N']) add(capSq, { promotion: promo });
-            } else add(capSq);
-          }
-          // En passant
-          if (state.enPassant === capSq) add(capSq, { enPassant: true });
-        }
-        break;
-      }
-      case 'N': jump([[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]]); break;
-      case 'B': slide([[1,1],[-1,1],[1,-1],[-1,-1]]); break;
-      case 'R': slide([[1,0],[-1,0],[0,1],[0,-1]]); break;
-      case 'Q': slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]); break;
-      case 'K': {
-        jump([[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]);
-        // Castling
-        const row = color === WHITE ? 0 : 7;
-        const kingSq = row * 8 + 4;
-        if (sq === kingSq) {
-          // Kingside
-          const ksKey = color === WHITE ? 'K' : 'k';
-          if (state.castling[ksKey] && !state.board[kingSq+1] && !state.board[kingSq+2]
-              && !isAttacked(state, kingSq, opposite(color))
-              && !isAttacked(state, kingSq+1, opposite(color))
-              && !isAttacked(state, kingSq+2, opposite(color))) {
-            add(kingSq + 2, { castle: 'K' });
-          }
-          // Queenside
-          const qsKey = color === WHITE ? 'Q' : 'q';
-          if (state.castling[qsKey] && !state.board[kingSq-1] && !state.board[kingSq-2] && !state.board[kingSq-3]
-              && !isAttacked(state, kingSq, opposite(color))
-              && !isAttacked(state, kingSq-1, opposite(color))
-              && !isAttacked(state, kingSq-2, opposite(color))) {
-            add(kingSq - 2, { castle: 'Q' });
-          }
-        }
-        break;
-      }
-    }
-    return moves;
   }
 
-  function opposite(color) { return color === WHITE ? BLACK : WHITE; }
-
-  // ─── ПРОВЕРКА АТАК ────────────────────────────────────────────
-  function isAttacked(state, sq, byColor) {
-    // Check all enemy pieces
-    for (let i = 0; i < 64; i++) {
-      const p = state.board[i];
-      if (!p || p.color !== byColor) continue;
-      const moves = pseudoMovesNoKingCastle(state, i);
-      if (moves.some(m => m.to === sq)) return true;
-    }
-    return false;
+  function findVerboseMove(chess, fromIdx, toIdx, promotion) {
+    const fromSq = indexToSquare(fromIdx);
+    const toSq = indexToSquare(toIdx);
+    const all = chess.moves({ square: fromSq, verbose: true }).filter(m => m.to === toSq);
+    if (!all.length) return undefined;
+    if (promotion) return all.find(m => m.promotion === String(promotion).toLowerCase());
+    // Превращение без указания фигуры — по умолчанию ферзь (как в старом движке)
+    return all.find(m => m.promotion === 'q') || all[0];
   }
 
-  function pseudoMovesNoKingCastle(state, sq) {
-    const piece = state.board[sq];
-    if (!piece) return [];
-    if (piece.type === 'K') {
-      const moves = [];
-      const { color } = piece;
-      for (const [df, dr] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]) {
-        const f2 = file(sq) + df, r2 = rank(sq) + dr;
-        if (f2 < 0 || f2 > 7 || r2 < 0 || r2 > 7) continue;
-        const target = r2 * 8 + f2;
-        const tp = state.board[target];
-        if (!tp || tp.color !== color) moves.push({ from: sq, to: target });
-      }
-      return moves;
-    }
-    return pseudoMoves(state, sq).filter(m => !m.castle);
-  }
-
-  // ─── ПРИМЕНЕНИЕ ХОДА ──────────────────────────────────────────
-  function applyMove(state, move) {
-    const newState = deepClone(state);
-    const { from, to, promotion, enPassant, castle, doublePush } = move;
-    const piece = newState.board[from];
-    const captured = newState.board[to];
-
-    // En passant capture
-    if (enPassant) {
-      const capSq = to - (piece.color === WHITE ? 8 : -8);
-      if (newState.board[capSq]) {
-        if (newState.board[capSq].color === WHITE) newState.capturedBlack.push(newState.board[capSq]);
-        else newState.capturedWhite.push(newState.board[capSq]);
-      }
-      newState.board[capSq] = null;
-    }
-
-    // Move piece
-    newState.board[to] = promotion ? { type: promotion, color: piece.color } : piece;
-    newState.board[from] = null;
-
-    // Castle — move rook
-    if (castle) {
-      const row = piece.color === WHITE ? 0 : 7;
-      if (castle === 'K') {
-        newState.board[row * 8 + 5] = newState.board[row * 8 + 7];
-        newState.board[row * 8 + 7] = null;
-      } else {
-        newState.board[row * 8 + 3] = newState.board[row * 8 + 0];
-        newState.board[row * 8 + 0] = null;
-      }
-    }
-
-    // Track captures
-    if (captured) {
-      if (captured.color === WHITE) newState.capturedWhite.push(captured);
-      else newState.capturedBlack.push(captured);
-    }
-
-    // Update castling rights
-    if (piece.type === 'K') {
-      if (piece.color === WHITE) { newState.castling.K = false; newState.castling.Q = false; }
-      else { newState.castling.k = false; newState.castling.q = false; }
-    }
-    if (piece.type === 'R') {
-      const row = piece.color === WHITE ? 0 : 7;
-      if (from === row * 8 + 7) newState.castling[piece.color === WHITE ? 'K' : 'k'] = false;
-      if (from === row * 8 + 0) newState.castling[piece.color === WHITE ? 'Q' : 'q'] = false;
-    }
-
-    // En passant square
-    newState.enPassant = doublePush ? (to + from) / 2 : null;
-
-    // Halfmove clock
-    if (piece.type === 'P' || captured) newState.halfmove = 0;
-    else newState.halfmove++;
-
-    // Fullmove
-    if (newState.turn === BLACK) newState.fullmove++;
-
-    newState.turn = opposite(newState.turn);
-    return newState;
-  }
-
-  // ─── ЛЕГАЛЬНЫЕ ХОДЫ ───────────────────────────────────────────
+  // ─── ЛЕГАЛЬНЫЕ ХОДЫ (генерация — chess.js) ───────────────────
   function legalMoves(state, sq) {
     const piece = state.board[sq];
     if (!piece || piece.color !== state.turn) return [];
-    const pseudo = pseudoMoves(state, sq);
-    return pseudo.filter(move => {
-      const next = applyMove(state, move);
-      // Find king of moving color
-      const kingSq = findKing(next, piece.color);
-      if (kingSq === -1) return false;
-      return !isAttacked(next, kingSq, next.turn); // next.turn is now opponent
-    });
+    const chess = makeChess(state);
+    if (!chess) return [];
+    return chess
+      .moves({ square: indexToSquare(sq), verbose: true })
+      .map(v => verboseToMove(v, sq));
   }
 
   function allLegalMoves(state) {
-    const moves = [];
-    for (let i = 0; i < 64; i++) {
-      const p = state.board[i];
-      if (p && p.color === state.turn) {
-        moves.push(...legalMoves(state, i));
-      }
-    }
-    return moves;
+    const chess = makeChess(state);
+    if (!chess) return [];
+    return chess.moves({ verbose: true }).map(v => verboseToMove(v, squareToIndex(v.from)));
   }
 
+  // ─── ПРИМЕНЕНИЕ ХОДА ─────────────────────────────────────────
+  // Вся механика (рокировка, взятие на проходе, превращение,
+  // права на рокировку при взятии ладьи и т.д.) — внутри chess.js.
+  function applyMove(state, move) {
+    if (!move || !Number.isInteger(move.from) || !Number.isInteger(move.to)) return deepClone(state);
+    const chess = makeChess(state);
+    if (!chess) return deepClone(state);
+    const piece = state.board[move.from];
+    const v = findVerboseMove(chess, move.from, move.to, move.promotion);
+    if (!v) return deepClone(state);
+
+    chess.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: v.promotion || undefined });
+
+    const newState = fenToState(chess.fen());
+    newState.history = [...state.history];
+    newState.capturedWhite = [...state.capturedWhite];
+    newState.capturedBlack = [...state.capturedBlack];
+
+    // Учёт взятых фигур — как в старом движке
+    if (v.captured) {
+      const capturedPiece = { type: v.captured.toUpperCase(), color: opposite(piece.color) };
+      if (capturedPiece.color === WHITE) newState.capturedWhite.push(capturedPiece);
+      else newState.capturedBlack.push(capturedPiece);
+    }
+    return newState;
+  }
+
+  // ─── КОРОЛЬ И АТАКИ ──────────────────────────────────────────
   function findKing(state, color) {
     for (let i = 0; i < 64; i++) {
       const p = state.board[i];
@@ -333,35 +227,49 @@ const ChessEngine = (() => {
     return -1;
   }
 
-  // ─── СТАТУС ИГРЫ ──────────────────────────────────────────────
-  function getStatus(state) {
-    const moves = allLegalMoves(state);
-    const kingSq = findKing(state, state.turn);
-    const inCheck = isAttacked(state, kingSq, opposite(state.turn));
-
-    if (moves.length === 0) {
-      return inCheck ? { status: 'checkmate', winner: opposite(state.turn) } : { status: 'stalemate' };
+  // Атакует ли фигура цвета byColor клетку sq — через chess.js.
+  function isAttacked(state, sq, byColor) {
+    const chess = makeChess(state);
+    if (!chess) return false;
+    try {
+      return chess.attackers(indexToSquare(sq), byColor).length > 0;
+    } catch (e) {
+      return false;
     }
-    if (state.halfmove >= 100) return { status: 'draw', reason: 'fifty-move' };
-    if (isInsufficientMaterial(state)) return { status: 'draw', reason: 'insufficient-material' };
-    if (isThreefoldRepetition(state)) return { status: 'draw', reason: 'threefold-repetition' };
+  }
+
+  // ─── СТАТУС ИГРЫ ─────────────────────────────────────────────
+  function getStatus(state) {
+    const chess = makeChess(state);
+    if (!chess) return { status: 'playing', inCheck: false };
+
+    if (chess.isCheckmate()) {
+      return { status: 'checkmate', winner: opposite(state.turn) };
+    }
+    if (chess.isStalemate()) {
+      return { status: 'stalemate' };
+    }
+    if (state.halfmove >= 100) {
+      return { status: 'draw', reason: 'fifty-move' };
+    }
+    if (chess.isInsufficientMaterial()) {
+      return { status: 'draw', reason: 'insufficient-material' };
+    }
+    if (isThreefoldRepetition(state)) {
+      return { status: 'draw', reason: 'threefold-repetition' };
+    }
+    const inCheck = chess.inCheck();
     return { status: inCheck ? 'check' : 'playing', inCheck };
   }
 
   function isInsufficientMaterial(state) {
-    const pieces = state.board.filter(Boolean);
-    if (pieces.length === 2) return true; // KK
-    if (pieces.length === 3) {
-      const minor = pieces.find(p => p.type === 'B' || p.type === 'N');
-      if (minor) return true; // KBK or KNK
-    }
-    return false;
+    const chess = makeChess(state);
+    if (!chess) return false;
+    return chess.isInsufficientMaterial();
   }
 
   // Отпечаток позиции для правила троекратного повторения: расстановка
-  // фигур + очередь хода + права рокировки + клетка взятия на проходе —
-  // без счётчиков полуходов/ходов (см. первые 4 поля FEN), они на
-  // повторение позиции не влияют.
+  // фигур + очередь хода + права рокировки + клетка взятия на проходе.
   function positionKey(fen) {
     return fen.split(' ').slice(0, 4).join(' ');
   }
@@ -381,52 +289,13 @@ const ChessEngine = (() => {
     return count >= 3;
   }
 
-  // ─── SAN НОТАЦИЯ ─────────────────────────────────────────────
+  // ─── SAN НОТАЦИЯ (генерирует chess.js, включая + и #) ────────
   function toSAN(state, move) {
-    const { from, to, promotion, castle, enPassant } = move;
-    if (castle === 'K') return 'O-O';
-    if (castle === 'Q') return 'O-O-O';
-
-    const piece = state.board[from];
-    const captured = state.board[to] || (enPassant ? { type: 'P' } : null);
-    let san = '';
-
-    if (piece.type !== 'P') {
-      san += piece.type;
-      // Disambiguation
-      const ambig = [];
-      for (let i = 0; i < 64; i++) {
-        if (i === from) continue;
-        const p = state.board[i];
-        if (p && p.type === piece.type && p.color === piece.color) {
-          const lm = legalMoves(state, i);
-          if (lm.some(m => m.to === to)) ambig.push(i);
-        }
-      }
-      if (ambig.length) {
-        const sameFile = ambig.some(s => file(s) === file(from));
-        const sameRank = ambig.some(s => rank(s) === rank(from));
-        if (!sameFile) san += String.fromCharCode(97 + file(from));
-        else if (!sameRank) san += (rank(from) + 1);
-        else san += indexToSquare(from);
-      }
-    }
-
-    if (captured) {
-      if (piece.type === 'P') san += String.fromCharCode(97 + file(from));
-      san += 'x';
-    }
-
-    san += indexToSquare(to);
-    if (promotion) san += '=' + promotion;
-
-    // Check/Checkmate
-    const next = applyMove(state, move);
-    const status = getStatus(next);
-    if (status.status === 'checkmate') san += '#';
-    else if (status.inCheck) san += '+';
-
-    return san;
+    if (!move || !Number.isInteger(move.from) || !Number.isInteger(move.to)) return '';
+    const chess = makeChess(state);
+    if (!chess) return '';
+    const v = findVerboseMove(chess, move.from, move.to, move.promotion);
+    return v ? v.san : '';
   }
 
   // ─── PGN ──────────────────────────────────────────────────────
@@ -448,21 +317,6 @@ const ChessEngine = (() => {
     }
     pgn += (metadata.result || '*');
     return pgn;
-  }
-
-  // ─── УТИЛИТЫ ──────────────────────────────────────────────────
-  function deepClone(state) {
-    return {
-      board: state.board.map(p => p ? { ...p } : null),
-      turn: state.turn,
-      castling: { ...state.castling },
-      enPassant: state.enPassant,
-      halfmove: state.halfmove,
-      fullmove: state.fullmove,
-      history: [...state.history],
-      capturedWhite: [...state.capturedWhite],
-      capturedBlack: [...state.capturedBlack]
-    };
   }
 
   // ─── ПУБЛИЧНЫЙ API ────────────────────────────────────────────
