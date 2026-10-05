@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Новости — Chess Home</title>
+  <title data-i18n="news.page_title">Новости — Chess Home</title>
   <script src="/js/header.js"></script>
   <link rel="icon" href="/img/logo/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -251,34 +251,34 @@ a{color:inherit;text-decoration:none}
   <!-- LIST -->
   <div id="view-list">
     <div class="news-header">
-      <h1>📰 Новости Chess Home</h1>
+      <h1 data-i18n="news.title">📰 Новости Chess Home</h1>
       <div class="news-header-actions">
         <div id="authors-panel-wrap" style="display:none">
-          <button class="btn btn-ghost btn-sm" onclick="openAuthorsModal()">👑 Управление авторами</button>
+          <button class="btn btn-ghost btn-sm" data-i18n="news.authors_panel" onclick="openAuthorsModal()">👑 Управление авторами</button>
         </div>
         <div id="new-post-wrap" style="display:none">
-          <button class="btn btn-primary btn-sm" onclick="openEditor(null)">✏️ Написать новость</button>
+          <button class="btn btn-primary btn-sm" data-i18n="news.write_news" onclick="openEditor(null)">✏️ Написать новость</button>
         </div>
       </div>
     </div>
 
     <div id="filter-tabs-wrap" class="filter-tabs" style="display:none">
-      <button class="filter-tab active" id="ftab-pub" onclick="switchFilter('published')">Опубликованные</button>
-      <button class="filter-tab" id="ftab-draft" style="display:none" onclick="switchFilter('drafts')">Мои черновики</button>
-      <button class="filter-tab" id="ftab-hidden" style="display:none" onclick="switchFilter('hidden')">🙈 Скрытые</button>
+      <button class="filter-tab active" id="ftab-pub" data-i18n="news.filter_published" onclick="switchFilter('published')">Опубликованные</button>
+      <button class="filter-tab" id="ftab-draft" style="display:none" data-i18n="news.filter_drafts" onclick="switchFilter('drafts')">Мои черновики</button>
+      <button class="filter-tab" id="ftab-hidden" style="display:none" data-i18n="news.filter_hidden" onclick="switchFilter('hidden')">🙈 Скрытые</button>
     </div>
 
     <div id="news-list" class="news-list">
-      <div class="news-loading"><div class="spinner"></div> Загрузка...</div>
+      <div class="news-loading"><div class="spinner"></div> <span data-i18n="news.loading">Загрузка...</span></div>
     </div>
   </div>
 
   <!-- POST VIEW -->
   <div id="view-post" style="display:none">
-    <div class="vp-back" onclick="goBack()">← Все новости</div>
+    <div class="vp-back" data-i18n="news.all_news" onclick="goBack()">← Все новости</div>
     <img id="vp-cover" class="vp-cover" style="display:none" alt="">
     <div class="vp-hero">
-      <div id="vp-draft-wrap" style="display:none"><span class="draft-badge">ЧЕРНОВИК</span></div>
+      <div id="vp-draft-wrap" style="display:none"><span class="draft-badge" data-i18n="news.draft_badge">ЧЕРНОВИК</span></div>
       <div class="vp-title" id="vp-title"></div>
       <div class="vp-meta">
         <div class="author-chip">
@@ -294,27 +294,27 @@ a{color:inherit;text-decoration:none}
     <div class="md-body" id="vp-body"></div>
     <div class="vp-actions">
       <button class="vote-btn like" id="like-btn" onclick="toggleVote('like')">
-        <span class="ic">👍</span><span id="like-count">0</span> нравится
+        <span class="ic">👍</span><span id="like-count">0</span> <span data-i18n="news.likes_label">нравится</span>
       </button>
       <button class="vote-btn dislike" id="dislike-btn" onclick="toggleVote('dislike')">
         <span class="ic">👎</span><span id="dislike-count">0</span>
       </button>
-      <span id="vote-login-hint" style="display:none;font-size:13px;color:var(--text3)">
+      <span id="vote-login-hint" style="display:none;font-size:13px;color:var(--text3)" data-i18n-html="news.login_to_like">
         <a href="/" style="color:var(--accent)">Войдите</a>, чтобы оценить новость
       </span>
     </div>
     <div id="vp-author-bar" class="vp-author-bar" style="display:none">
-      <span class="bar-label" id="vp-bar-label">⚙️ Управление</span>
-      <button class="btn btn-ghost btn-sm" onclick="editCurrentPost()">✏️ Редактировать</button>
+      <span class="bar-label" id="vp-bar-label" data-i18n="news.manage_panel">⚙️ Управление</span>
+      <button class="btn btn-ghost btn-sm" data-i18n="news.edit" onclick="editCurrentPost()">✏️ Редактировать</button>
       <button class="btn btn-ghost btn-sm" id="toggle-pub-btn" onclick="togglePublish()"></button>
-      <button class="btn btn-ghost btn-sm" id="hide-post-btn" style="display:none" onclick="hidePost()">🙈 Прикрыть</button>
-      <button class="btn btn-danger btn-sm" onclick="deletePost()">🗑 Удалить</button>
+      <button class="btn btn-ghost btn-sm" id="hide-post-btn" style="display:none" data-i18n="news.hide" onclick="hidePost()">🙈 Прикрыть</button>
+      <button class="btn btn-danger btn-sm" data-i18n="news.delete" onclick="deletePost()">🗑 Удалить</button>
     </div>
 
     <a id="comments-btn-wrap" href="#" onclick="openCommentsView(event)" style="display:none;text-decoration:none;margin-top:28px">
       <div class="comments-big-btn">
         <span class="cbb-icon">💬</span>
-        <span class="cbb-label">Комментарии</span>
+        <span class="cbb-label" data-i18n="news.comments_title">Комментарии</span>
         <span class="cbb-count" id="cbb-count"></span>
         <span class="cbb-arrow">→</span>
       </div>
@@ -323,16 +323,16 @@ a{color:inherit;text-decoration:none}
 
   <!-- COMMENTS VIEW -->
   <div id="view-comments" style="display:none">
-    <div class="vp-back" onclick="closeCommentsView()">← К новости</div>
+    <div class="vp-back" data-i18n="news.back_to_news" onclick="closeCommentsView()">← К новости</div>
     <div class="cmt-header">
-      <h2 class="cmt-title" id="cmt-post-title">Комментарии</h2>
+      <h2 class="cmt-title" id="cmt-post-title" data-i18n="news.comments_title">Комментарии</h2>
       <span class="cmt-subtitle" id="cmt-count-label"></span>
     </div>
 
     <div id="cmt-ban-notice" style="display:none" class="cmt-ban-box"></div>
 
     <div id="cmt-write-wrap">
-      <div id="cmt-login-hint" style="display:none" class="login-prompt">
+      <div id="cmt-login-hint" style="display:none" class="login-prompt" data-i18n-html="news.login_to_comment">
         <a href="/">Войдите</a>, чтобы оставить комментарий
       </div>
       <div id="cmt-form" style="display:none">
@@ -347,44 +347,45 @@ a{color:inherit;text-decoration:none}
             <button onclick="cmtInsLine('- ')">•</button>
           </div>
           <div class="cmt-tabs">
-            <div class="md-tab active" id="ctab-write" onclick="cmtSwitchTab('write')">✏️ Писать</div>
-            <div class="md-tab" id="ctab-prev" onclick="cmtSwitchTab('preview')">👁 Предпросмотр</div>
+            <div class="md-tab active" id="ctab-write" data-i18n="news.tab_write" onclick="cmtSwitchTab('write')">✏️ Писать</div>
+            <div class="md-tab" id="ctab-prev" data-i18n="news.tab_preview" onclick="cmtSwitchTab('preview')">👁 Предпросмотр</div>
           </div>
           <div class="md-panel active" id="cpanel-write">
             <textarea id="cmt-textarea" class="cmt-textarea" maxlength="4000"
+              data-i18n-placeholder="news.comment_placeholder"
               placeholder="Напишите комментарий (Markdown поддерживается)...&#10;**жирный** *курсив* `код` > цитата"
               oninput="cmtUpdateCounter()"></textarea>
           </div>
           <div class="md-panel" id="cpanel-preview">
-            <div class="cmt-preview-wrap md-body" id="cmt-preview-body"><span class="md-empty">Предпросмотр...</span></div>
+            <div class="cmt-preview-wrap md-body" id="cmt-preview-body"><span class="md-empty" data-i18n="news.preview_empty_short">Предпросмотр...</span></div>
           </div>
         </div>
         <div class="cmt-form-bottom">
           <span class="char-counter" id="cmt-counter">0 / 4000</span>
-          <button class="btn btn-primary" id="cmt-submit-btn" onclick="submitComment()">💬 Отправить</button>
+          <button class="btn btn-primary" id="cmt-submit-btn" data-i18n="news.send" onclick="submitComment()">💬 Отправить</button>
         </div>
       </div>
     </div>
 
     <div id="cmt-list" class="cmt-list">
-      <div class="news-loading"><div class="spinner"></div> Загрузка комментариев...</div>
+      <div class="news-loading"><div class="spinner"></div> <span data-i18n="news.comments_loading">Загрузка комментариев...</span></div>
     </div>
   </div>
 
   <!-- EDITOR -->
   <div id="editor-panel" style="display:none">
     <div class="editor-back-row">
-      <h2 id="editor-h2">✏️ Новая новость</h2>
-      <button class="btn btn-ghost btn-sm" onclick="cancelEditor()">✕ Отмена</button>
+      <h2 id="editor-h2" data-i18n="news.new_news">✏️ Новая новость</h2>
+      <button class="btn btn-ghost btn-sm" data-i18n="news.cancel" onclick="cancelEditor()">✕ Отмена</button>
     </div>
-    <input type="text" class="title-input" id="post-title" placeholder="Заголовок новости..." maxlength="200">
+    <input type="text" class="title-input" id="post-title" data-i18n-placeholder="news.title_placeholder" placeholder="Заголовок новости..." maxlength="200">
 
     <div class="cover-drop">
-      <div class="cover-preview" id="cover-preview">Нет обложки</div>
+      <div class="cover-preview" id="cover-preview" data-i18n="news.no_cover">Нет обложки</div>
       <div class="cover-drop-info">
-        <p>Обложка новости (необязательно). JPG/PNG, до 5 МБ.</p>
+        <p data-i18n="news.cover_desc">Обложка новости (необязательно). JPG/PNG, до 5 МБ.</p>
         <input type="file" id="cover-file-input" accept="image/*" onchange="onCoverFileChange(event)">
-        <button class="btn btn-ghost btn-sm" id="cover-remove-btn" style="display:none;margin-top:8px" onclick="removeCover()">✕ Убрать обложку</button>
+        <button class="btn btn-ghost btn-sm" id="cover-remove-btn" style="display:none;margin-top:8px" data-i18n="news.remove_cover" onclick="removeCover()">✕ Убрать обложку</button>
       </div>
     </div>
 
@@ -398,34 +399,35 @@ a{color:inherit;text-decoration:none}
         <button onclick="insLine('### ')">H3</button>
         <button onclick="insLine('#### ')">H4</button>
         <div class="md-sep"></div>
-        <button onclick="insLine('- ')">• список</button>
-        <button onclick="insLine('1. ')">1. список</button>
-        <button onclick="insLine('> ')">❝ цитата</button>
+        <button onclick="insLine('- ')" data-i18n="blog.toolbar.bullet_list">• список</button>
+        <button onclick="insLine('1. ')" data-i18n="blog.toolbar.numbered_list">1. список</button>
+        <button onclick="insLine('> ')" data-i18n="blog.toolbar.quote">❝ цитата</button>
         <div class="md-sep"></div>
-        <button onclick="ins('`','`')">&lt;/&gt; код</button>
-        <button onclick="insBlock()">``` блок</button>
+        <button onclick="ins('`','`')" data-i18n-html="blog.toolbar.code">&lt;/&gt; код</button>
+        <button onclick="insBlock()" data-i18n-html="blog.toolbar.code_block">``` блок</button>
         <div class="md-sep"></div>
-        <button onclick="ins('[текст](','url)')">🔗 ссылка</button>
-        <button onclick="insLine('---')">— разделитель</button>
+        <button onclick="ins('[текст](','url)')" data-i18n="blog.toolbar.link">🔗 ссылка</button>
+        <button onclick="insLine('---')" data-i18n="blog.toolbar.divider">— разделитель</button>
       </div>
       <div class="md-tabs">
-        <div class="md-tab active" id="etab-write" onclick="switchETab('write')">✏️ Редактор</div>
-        <div class="md-tab" id="etab-preview" onclick="switchETab('preview')">👁 Предпросмотр</div>
+        <div class="md-tab active" id="etab-write" data-i18n="blog.editor_tab" onclick="switchETab('write')">✏️ Редактор</div>
+        <div class="md-tab" id="etab-preview" data-i18n="blog.preview_tab" onclick="switchETab('preview')">👁 Предпросмотр</div>
       </div>
       <div class="md-panel active" id="epanel-write">
         <textarea class="md-textarea" id="post-body"
+          data-i18n-placeholder="news.editor_placeholder"
           placeholder="Пиши новость в Markdown...&#10;&#10;## Заголовок&#10;**жирный** *курсив* ~~зачёркнутый~~&#10;> цитата&#10;&#10;- пункт&#10;- ещё пункт"
           oninput="updateCounter()"></textarea>
-        <div class="md-hint">**жирный** · *курсив* · ## Заголовок · > цитата · `код` · [ссылка](url)</div>
+        <div class="md-hint" data-i18n="news.editor_hint">**жирный** · *курсив* · ## Заголовок · > цитата · `код` · [ссылка](url)</div>
       </div>
       <div class="md-panel" id="epanel-preview">
-        <div class="md-preview-wrap md-body" id="editor-preview"><span class="md-empty">Предпросмотр появится здесь...</span></div>
+        <div class="md-preview-wrap md-body" id="editor-preview"><span class="md-empty" data-i18n="news.preview_empty_long">Предпросмотр появится здесь...</span></div>
       </div>
     </div>
     <div class="char-counter" id="char-counter">0 символов</div>
     <div class="editor-actions">
-      <button class="btn btn-ghost" id="btn-draft" onclick="savePost('draft')">💾 Сохранить черновик</button>
-      <button class="btn btn-primary" id="btn-pub" onclick="savePost('published')">🚀 Опубликовать</button>
+      <button class="btn btn-ghost" id="btn-draft" data-i18n="news.save_draft" onclick="savePost('draft')">💾 Сохранить черновик</button>
+      <button class="btn btn-primary" id="btn-pub" data-i18n="news.publish_btn" onclick="savePost('published')">🚀 Опубликовать</button>
     </div>
   </div>
 
@@ -435,12 +437,12 @@ a{color:inherit;text-decoration:none}
 <div class="modal-overlay" id="authors-modal-overlay" onclick="if(event.target===this)closeAuthorsModal()">
   <div class="modal-box">
     <button class="modal-close" onclick="closeAuthorsModal()">✕</button>
-    <h3>👑 Авторы новостей</h3>
-    <div class="modal-sub">Владелец назначает и снимает авторов, которые могут писать новости.</div>
+    <h3 data-i18n="news.authors_modal_title">👑 Авторы новостей</h3>
+    <div class="modal-sub" data-i18n="news.authors_modal_desc">Владелец назначает и снимает авторов, которые могут писать новости.</div>
     <div id="authors-list"><div class="authors-empty">Загрузка...</div></div>
     <div class="add-author-row">
-      <input type="text" id="new-author-input" placeholder="Никнейм пользователя" maxlength="40" onkeydown="if(event.key==='Enter')addAuthor()">
-      <button class="btn btn-primary btn-sm" onclick="addAuthor()">+ Добавить</button>
+      <input type="text" id="new-author-input" data-i18n-placeholder="news.author_placeholder" placeholder="Никнейм пользователя" maxlength="40" onkeydown="if(event.key==='Enter')addAuthor()">
+      <button class="btn btn-primary btn-sm" data-i18n="news.add_author" onclick="addAuthor()">+ Добавить</button>
     </div>
   </div>
 </div>
@@ -487,6 +489,15 @@ let editingId = null;
 let currentFilter = 'published';
 let coverUrl = null;
 
+// ── i18n helpers (словарь подгружается header.js через /js/i18n.js) ──
+function T(key, vars) { return (window.CH_I18N && window.CH_I18N.t) ? CH_I18N.t(key, vars) : key; }
+function TN(key, n) { return (window.CH_I18N && window.CH_I18N.tn) ? CH_I18N.tn(key, n) : String(n); }
+async function waitI18nReady() {
+  let tries = 0;
+  while (!(window.CH_I18N && window.CH_I18N.onReady) && tries < 100) { await new Promise(r => setTimeout(r, 50)); tries++; }
+  if (window.CH_I18N && window.CH_I18N.onReady) await new Promise(r => CH_I18N.onReady(r));
+}
+
 function getDevId() {
   let id = localStorage.getItem('ch_device_id');
   if (!id) { id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2); localStorage.setItem('ch_device_id', id); }
@@ -495,7 +506,7 @@ function getDevId() {
 const DEVID = getDevId();
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function formatDate(ts) { return new Date(ts).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'}); }
+function formatDate(ts) { return new Date(ts).toLocaleDateString((window.CH_I18N && CH_I18N.getLang && CH_I18N.getLang() === 'en') ? 'en-US' : 'ru-RU',{day:'numeric',month:'long',year:'numeric'}); }
 function mdRender(text) {
   if (!text) return '';
   return DOMPurify.sanitize(marked.parse(text, {breaks:true,gfm:true}), {USE_PROFILES:{html:true}});
@@ -598,7 +609,7 @@ function closeAuthorsModal() {
 function renderAuthorsModal() {
   const el = document.getElementById('authors-list');
   if (!newsAuthors.length) {
-    el.innerHTML = '<div class="authors-empty">Пока нет ни одного автора</div>';
+    el.innerHTML = '<div class="authors-empty">' + T('news.empty_authors') + '</div>';
   } else {
     el.innerHTML = newsAuthors.map(a => `
       <div class="author-row">
@@ -643,7 +654,7 @@ function switchFilter(filter) {
 
 // ── LOAD & RENDER LIST ───────────────────────────────────────────
 async function loadPosts() {
-  document.getElementById('news-list').innerHTML = '<div class="news-loading"><div class="spinner"></div> Загрузка...</div>';
+  document.getElementById('news-list').innerHTML = '<div class="news-loading"><div class="spinner"></div> ' + T('news.loading') + '</div>';
   try {
     let url = `/news?limit=50`;
     if (currentFilter === 'drafts') url += '&status=drafts';
@@ -661,9 +672,9 @@ function renderList() {
   const el = document.getElementById('news-list');
   if (!allPosts.length) {
     const icon = currentFilter==='drafts' ? '📝' : currentFilter==='hidden' ? '🙈' : '📰';
-    const msg  = currentFilter==='drafts' ? 'Черновиков нет' :
-                 currentFilter==='hidden' ? 'Скрытых новостей нет' :
-                 'Новостей пока нет.';
+    const msg  = currentFilter==='drafts' ? T('news.no_drafts') :
+                 currentFilter==='hidden' ? T('news.no_hidden') :
+                 T('news.no_news');
     el.innerHTML = `<div class="news-empty"><div class="ei">${icon}</div><p>${msg}</p></div>`;
     return;
   }
@@ -675,13 +686,13 @@ function renderList() {
     if (p.status === 'hidden') {
       card.innerHTML = `
         <div class="news-card-body">
-          <span class="draft-badge">🙈 ПРИКРЫТА</span>
+          <span class="draft-badge">${T('news.hidden_badge')}</span>
           <div class="news-card-title">${esc(p.title)}</div>
           ${excerpt ? `<div class="news-card-excerpt">${esc(excerpt)}${(p.body||'').length>220?'…':''}</div>` : ''}
           <div class="news-card-meta"><span class="stat">📅 ${formatDate(p.createdAt)}</span></div>
           <div class="vp-actions" style="margin-top:10px;padding-top:0;border-top:none">
-            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();restoreHiddenPost('${p.id}')">↩️ Вернуть</button>
-            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteHiddenPost('${p.id}')">🗑 Удалить навсегда</button>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();restoreHiddenPost('${p.id}')">${T('news.restore_btn')}</button>
+            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteHiddenPost('${p.id}')">${T('news.delete_forever_btn')}</button>
           </div>
         </div>`;
       el.appendChild(card);
@@ -690,7 +701,7 @@ function renderList() {
     card.innerHTML = `
       ${p.cover ? `<div class="news-card-cover" style="background-image:url('${esc(p.cover)}')"></div>` : ''}
       <div class="news-card-body">
-        ${p.status==='draft' ? '<span class="draft-badge">ЧЕРНОВИК</span>' : ''}
+        ${p.status==='draft' ? '<span class="draft-badge">' + T('news.draft_badge') + '</span>' : ''}
         <div class="news-card-title">${esc(p.title)}</div>
         ${excerpt ? `<div class="news-card-excerpt">${esc(excerpt)}${(p.body||'').length>220?'…':''}</div>` : ''}
         <div class="news-card-meta">
@@ -866,12 +877,12 @@ function openEditor(id) {
   editingId = id;
   if (id) {
     const p = allPosts.find(x=>x.id===id) || currentPost;
-    document.getElementById('editor-h2').textContent = '✏️ Редактировать новость';
+    document.getElementById('editor-h2').textContent = T('news.edit_news');
     document.getElementById('post-title').value = p?.title||'';
     document.getElementById('post-body').value = p?.body||'';
     setCoverPreview(p?.cover || null);
   } else {
-    document.getElementById('editor-h2').textContent = '✏️ Новая новость';
+    document.getElementById('editor-h2').textContent = T('news.new_news');
     document.getElementById('post-title').value = '';
     document.getElementById('post-body').value = '';
     setCoverPreview(null);
@@ -891,13 +902,13 @@ function switchETab(tab) {
   document.getElementById('epanel-preview').classList.toggle('active', tab==='preview');
   if (tab==='preview') {
     const body = document.getElementById('post-body').value;
-    document.getElementById('editor-preview').innerHTML = body ? mdRender(body) : '<span class="md-empty">Предпросмотр появится здесь...</span>';
+    document.getElementById('editor-preview').innerHTML = body ? mdRender(body) : '<span class="md-empty">' + T('news.preview_empty_long') + '</span>';
   }
 }
 function updateCounter() {
   const n = document.getElementById('post-body').value.length;
   const el = document.getElementById('char-counter');
-  el.textContent = n.toLocaleString('ru') + ' символов';
+  el.textContent = T('news.char_count', { n: n.toLocaleString('ru') });
   el.className = 'char-counter'+(n>50000?' over':n>30000?' warn':'');
 }
 function ins(before, after) {
@@ -934,7 +945,7 @@ function setCoverPreview(url) {
     rmBtn.style.display = '';
   } else {
     prev.style.backgroundImage = '';
-    prev.textContent = 'Нет обложки';
+    prev.textContent = T('news.no_cover');
     rmBtn.style.display = 'none';
   }
 }
@@ -1018,7 +1029,7 @@ async function loadComments() {
     renderWriteForm();
     renderComments();
     const label = document.getElementById('cmt-count-label');
-    label.textContent = cmtData.length === 0 ? 'Комментариев пока нет' : `${cmtData.length} ${cmtData.length===1?'комментарий':cmtData.length<5?'комментария':'комментариев'}`;
+    label.textContent = cmtData.length === 0 ? T('news.no_comments_yet') : TN('news.comment_count', cmtData.length);
   } catch(e) {
     listEl.innerHTML = `<div class="cmt-empty"><div class="ei">⚠️</div><p>${esc(e.message)}</p></div>`;
   }
@@ -1048,7 +1059,7 @@ function renderWriteForm() {
 function renderComments() {
   const el = document.getElementById('cmt-list');
   if (cmtData.length === 0) {
-    el.innerHTML = '<div class="cmt-empty"><div class="ei">💬</div><p>Будьте первым, кто оставит комментарий!</p></div>';
+    el.innerHTML = '<div class="cmt-empty"><div class="ei">💬</div><p>' + T('blog.empty.no_comments') + '</p></div>';
     return;
   }
   el.innerHTML = '';
@@ -1137,7 +1148,7 @@ function cmtSwitchTab(tab) {
   document.getElementById('cpanel-preview').classList.toggle('active', tab==='preview');
   if (tab==='preview') {
     const body = document.getElementById('cmt-textarea').value;
-    document.getElementById('cmt-preview-body').innerHTML = body ? mdRender(body) : '<span class="md-empty">Предпросмотр...</span>';
+    document.getElementById('cmt-preview-body').innerHTML = body ? mdRender(body) : '<span class="md-empty">' + T('news.preview_empty_short') + '</span>';
   }
 }
 function cmtUpdateCounter() {
@@ -1175,7 +1186,7 @@ async function submitComment() {
     if (listEl.querySelector('.cmt-empty')) listEl.innerHTML='';
     listEl.appendChild(buildCommentEl(res.comment));
     const label = document.getElementById('cmt-count-label');
-    label.textContent = `${cmtData.length} ${cmtData.length===1?'комментарий':cmtData.length<5?'комментария':'комментариев'}`;
+    label.textContent = TN('news.comment_count', cmtData.length);
     const cbbCount = document.getElementById('cbb-count');
     const visCount = cmtData.filter(c=>!c.deleted).length;
     if (cbbCount) cbbCount.textContent = visCount > 0 ? visCount : '';
@@ -1188,6 +1199,7 @@ async function submitComment() {
 
 // ── INIT ─────────────────────────────────────────────────────────
 async function init() {
+  await waitI18nReady();
   if (window.CH && typeof CH.initHeader === 'function') CH.initHeader();
 
   try {
@@ -1212,6 +1224,15 @@ async function init() {
     showView('list');
   }
 }
+
+// Смена языка — перерисовываем JS-рендеренный контент (паттерн blog.html)
+document.addEventListener('ch-lang-changed', () => {
+  if (document.getElementById('view-list').style.display !== 'none') renderList();
+  if (document.getElementById('view-comments').style.display !== 'none') {
+    const label = document.getElementById('cmt-count-label');
+    if (label) label.textContent = cmtData.length === 0 ? T('news.no_comments_yet') : TN('news.comment_count', cmtData.length);
+  }
+});
 
 init();
 </script>

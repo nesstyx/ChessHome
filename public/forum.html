@@ -666,7 +666,7 @@ function renderThread(thread, replies, replyMeta){
     replies.forEach(function(r,i){
       const canDelR=currentUser&&currentUser.role==='admin';
       const div=document.createElement('div');div.id='reply-'+r.id;
-      div.innerHTML=makePost(r.body,r.author,r.createdAt,false,r.id,canDelR,(replyMeta.page-1)*replyMeta.limit + i + 1);
+      div.innerHTML=makePost(r.body,r.author,r.createdAt,false,r.id,canDelR,(replyMeta.page-1)*replyMeta.limit + i + 1, r.reactions, r.myReaction);
       rEl.appendChild(div);
     });
   }
@@ -717,14 +717,54 @@ function changeReplyPage(slug, newPage){
   showThread(slug, newPage);
 }
 
-function makePost(body,author,ts,isOp,replyId,canDel,num){
+function makePost(body,author,ts,isOp,replyId,canDel,num,reactions,myReaction){
+  // Реакции ответов форума (issue #45): панель эмодзи-тогглов под постом.
+  var reactionsHtml = '';
+  if (replyId) {
+    const FORUM_EMOJIS = ['👍','👎','❤️','😂','😮','♟️'];
+    var chips = '';
+    FORUM_EMOJIS.forEach(function(em){
+      var cnt = (reactions && reactions[em]) || 0;
+      var mine = myReaction === em;
+      chips += '<button type="button" class="frx-btn'+(mine?' mine':'')+'" data-emoji="'+em+'"'
+        +' onclick="toggleForumReaction(\''+replyId+'\',\''+em+'\')"'
+        +' style="background:none;border:1px solid '+(mine?'var(--accent,#c9a84c)':'transparent')+';border-radius:12px;padding:2px 8px;margin-right:4px;font-size:13px;cursor:pointer;color:inherit">'
+        + em + (cnt ? ' <span style="font-size:12px;opacity:.8">'+cnt+'</span>' : '')
+        + '</button>';
+    });
+    reactionsHtml = '<div class="frx-row" id="frx-row-'+replyId+'" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:2px">'+chips+'</div>';
+  }
   return '<div class="post-card'+(isOp?' op-post':'')+'"><div class="post-head">'
     +'<div class="post-av" onclick="window.location=\'/profile/'+esc(author)+'\'">'+esc(author[0].toUpperCase())+'</div>'
     +'<div><span class="post-name" onclick="window.location=\'/profile/'+esc(author)+'\'">'+esc(author)+'</span>'
     +(isOp?'<span class="op-badge">OP</span>':(num?'<span class="num-badge">#'+num+'</span>':''))+'</div>'
     +'<span class="post-date">'+timeAgo(ts)+'</span>'
     +(canDel?'<button class="del-btn" type="button" onclick="delReply(\''+replyId+'\')">🗑</button>':'')
-    +'</div><div class="post-body">'+mdRender(body)+'</div></div>';
+    +'</div><div class="post-body">'+mdRender(body)+'</div>'+reactionsHtml+'</div>';
+}
+
+// Toggle реакции на ответе форума (issue #45): сервер возвращает актуальную карту
+// реакций и мою реакцию — обновляем только строку этого ответа.
+async function toggleForumReaction(replyId, emoji) {
+  if (!currentUser) { openModal('modal-login'); return; }
+  try {
+    const res = await apiPost('/forum/replies/' + replyId + '/react', { emoji });
+    const rowEl = document.getElementById('frx-row-' + replyId);
+    if (rowEl && res.reactions) {
+      const FORUM_EMOJIS = ['👍','👎','❤️','😂','😮','♟️'];
+      var chips = '';
+      FORUM_EMOJIS.forEach(function(em){
+        var cnt = res.reactions[em] || 0;
+        var mine = res.myReaction === em;
+        chips += '<button type="button" class="frx-btn'+(mine?' mine':'')+'" data-emoji="'+em+'"'
+          +' onclick="toggleForumReaction(\''+replyId+'\',\''+em+'\')"'
+          +' style="background:none;border:1px solid '+(mine?'var(--accent,#c9a84c)':'transparent')+';border-radius:12px;padding:2px 8px;margin-right:4px;font-size:13px;cursor:pointer;color:inherit">'
+          + em + (cnt ? ' <span style="font-size:12px;opacity:.8">'+cnt+'</span>' : '')
+          + '</button>';
+      });
+      rowEl.innerHTML = chips;
+    }
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 function backToList(){

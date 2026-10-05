@@ -75,6 +75,7 @@
       items: [
         { id: 'analysis', i18nLabel: 'header.nav_analysis',   icon: '🔍', href: '/analysis' },
         { id: 'editor',   i18nLabel: 'header.nav_editor', icon: '✏️', href: '/editor' },
+        { id: 'ai',       i18nLabel: 'header.nav_ai',      icon: '🤖', href: '/ai', spa: false },
       ]
     },
     {
@@ -100,7 +101,9 @@
     { id: 'home',     i18nLabel: 'header.nav_home', icon: '♚', href: '/' },
     { id: 'lobby',    i18nLabel: 'header.nav_play',  icon: '⚔️', href: '/lobby' },
     { id: 'puzzles',  i18nLabel: 'header.nav_puzzles',  icon: '🧩', href: '/puzzles' },
-    { id: 'stats',    i18nLabel: 'header.nav_analysis',    icon: '🔍', href: '/analysis', spa: false },
+    // Фикс: id должен совпадать с идентификатором страницы ('analysis'),
+    // иначе подсветка активного пункта нижней навигации не срабатывает.
+    { id: 'analysis', i18nLabel: 'header.nav_analysis',    icon: '🔍', href: '/analysis', spa: false },
     { id: 'more',     i18nLabel: 'header.nav_more',     icon: '☰',  href: null, action: 'drawer' },
   ];
 
@@ -185,7 +188,9 @@
     return String(s || '').replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-  function isAdmin(u) { return u && ADMINS.includes(u.username); }
+  // Админ определяется по роли с сервера (users.role === 'admin', issue #27).
+  // ADMINS — только legacy-fallback для старых аккаунтов bootstrap.
+  function isAdmin(u) { return !!u && (u.role === 'admin' || ADMINS.includes(u.username)); }
   // Значок VIP приходит с сервера уже посчитанным (u.vip) — сам гаснет через месяц,
   // здесь просто рисуем картинку, если он активен.
   function vipBadgeHTML(u) {
@@ -824,7 +829,7 @@
     header.innerHTML = `
       <a href="/" class="ch-logo"
         onclick="event.preventDefault();(window.showPage?showPage('home'):location.href='/')">
-        <img src="../img/logo/logo.png" alt="" class="ch-logo-icon">
+        <img src="/img/logo/logo.png" alt="" class="ch-logo-icon">
         <span class="ch-logo-text">Chess Home</span>
       </a>
       <ul id="ch-nav">${_buildDesktopNav()}</ul>
@@ -850,7 +855,7 @@
     drawer.setAttribute('aria-modal', 'true');
     drawer.innerHTML = `
       <div class="ch-dr-head">
-        <div class="ch-dr-logo"> <img src="../img/logo/logo.png" alt="ChessHome"> ChessHome </div>
+        <div class="ch-dr-logo"> <img src="/img/logo/logo.png" alt="ChessHome"> ChessHome </div>
         <button class="ch-dr-close" onclick="CH.closeMobileNav()">✕</button>
       </div>
       <div class="ch-dr-links" id="ch-drawer-links">${_buildDrawerLinks()}</div>

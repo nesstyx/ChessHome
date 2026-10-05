@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="tournaments.detail.page_title">Турнир — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
-<link rel="icon" type="image/png" href="../img/logo/favicon.png">
+<link rel="icon" type="image/png" href="/img/logo/favicon.png">
   <style>
     body { background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); }
 
@@ -45,6 +45,7 @@
     .t-hero-top {
       display: flex;
       align-items: flex-start;
+      flex-wrap: wrap;            /* issue #22 */
       gap: 20px;
       margin-bottom: 20px;
     }
@@ -59,7 +60,7 @@
       font-size: 32px;
       flex-shrink: 0;
     }
-    .t-hero-info { flex: 1; }
+    .t-hero-info { flex: 1; min-width: 0; } /* issue #22 */
     .t-hero-status {
       display: inline-flex;
       align-items: center;
@@ -251,6 +252,7 @@
     /* ── TABS ── */
     .section-tabs {
       display: flex;
+      flex-wrap: wrap;            /* issue #22: табы не выпадают за экран на узких экранах */
       gap: 4px;
       border-bottom: 1px solid var(--border);
       margin-bottom: 24px;
@@ -371,7 +373,8 @@
     }
     .lb-row {
       display: grid;
-      grid-template-columns: 48px 1fr 70px 70px 70px 70px 100px;
+      /* issue #22: minmax(0,1fr) — длинный ник больше не растягивает строку за экран */
+      grid-template-columns: 48px minmax(0,1fr) 70px 70px 70px 70px 100px;
       align-items: center;
       padding: 12px 20px;
       border-bottom: 1px solid var(--border);
@@ -407,6 +410,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      min-width: 0; /* issue #22 */
     }
     .lb-avatar {
       width: 32px; height: 32px;
@@ -424,6 +428,9 @@
       font-weight: 600;
       font-size: 14px;
       color: var(--text-primary);
+      min-width: 0;               /* issue #22 */
+      overflow-wrap: anywhere;    /* длинные ники переносятся, а не выталкивают строку */
+      word-break: break-word;
     }
     .lb-name a {
       color: inherit;
@@ -480,7 +487,8 @@
       padding: 12px 16px;
       display: flex;
       align-items: center;
-      gap: 14px;
+      flex-wrap: wrap;            /* issue #22: пары «белые–чёрные» переносятся на мобильных */
+      gap: 8px 14px;
       font-size: 13px;
       cursor: pointer;
       transition: all 0.15s;
@@ -497,6 +505,9 @@
     }
     .game-player {
       flex: 1;
+      min-width: 0;               /* issue #22 */
+      overflow-wrap: anywhere;
+      word-break: break-word;
       font-weight: 600;
       color: var(--text-primary);
     }
@@ -683,10 +694,15 @@
     .section-content.active { display: block; }
 
     @media (max-width: 700px) {
-      .lb-row { grid-template-columns: 36px 1fr 55px 55px; }
+      .lb-row { grid-template-columns: 36px minmax(0,1fr) 55px 55px; }
       .lb-row .lb-num:nth-child(5),
       .lb-row .lb-num:nth-child(6),
       .lb-row .lb-status { display: none; }
+      /* issue #22: у шапки нет классов ячеек — прячем «Ничьи/Поражения/Статус»,
+         иначе заголовок остаётся 7-колоночным и рассыпается по строкам */
+      .lb-row.header > :nth-child(n+5) { display: none; }
+      /* issue #22: «📅 Начало: …» с white-space:nowrap шире экрана телефона */
+      .t-hero-meta-item { white-space: normal; }
       .t-hero { padding: 24px 20px; }
       .t-hero-title { font-size: 22px; }
     }

@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Межклубный турнир — Chess Home</title>
+<title data-i18n="interclub.detail_page_title">Межклубный турнир — Chess Home</title>
 <meta name="description" content="Межклубный турнир Chess Home">
 <link rel="stylesheet" href="/css/main.css">
-<link rel="icon" type="image/png" href="../img/logo/favicon.png">
+<link rel="icon" type="image/png" href="/img/logo/favicon.png">
 <style>
   body { background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); }
 
@@ -37,7 +37,7 @@
   .ictd-hero-bg-text { position: absolute; right: 24px; bottom: -26px; font-size: 140px; opacity: 0.04; pointer-events: none; user-select: none; }
   .ictd-hero-top { display: flex; align-items: flex-start; gap: 20px; position: relative; z-index: 1; flex-wrap: wrap; }
   .ictd-hero-icon { width: 64px; height: 64px; border-radius: 16px; background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.25); display: flex; align-items: center; justify-content: center; font-size: 32px; flex-shrink: 0; }
-  .ictd-hero-info { flex: 1; min-width: 240px; }
+  .ictd-hero-info { flex: 1; min-width: 0; } /* issue #22: 240px не влезает в 320px экран */
   .ictd-badge {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 3px 11px; border-radius: 20px;
@@ -157,14 +157,14 @@
   #my-status-banner { border-radius: 12px; padding: 14px 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 14px; font-size: 14px; font-weight: 600; border-width: 1px; border-style: solid; }
 
   @media (max-width: 640px) {
-    .ictd-standings-head, .ictd-team-row-main { grid-template-columns: 30px 1fr 50px 60px; }
+    .ictd-standings-head, .ictd-team-row-main { grid-template-columns: 30px minmax(0,1fr) 60px; } /* issue #22: minmax(0,1fr), чтобы длинные имена команд не ломали строку */
     .ictd-standings-head span.hide-mobile, .ictd-team-row-main span.hide-mobile { display: none; }
   }
 
   /* ── GAMES LIST ── */
   .ictd-games-list { display: flex; flex-direction: column; gap: 8px; }
   .ictd-game-row { display: flex; align-items: center; gap: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; font-size: 13px; flex-wrap: wrap; }
-  .ictd-game-players { flex: 1; min-width: 180px; color: var(--text-primary); font-weight: 600; }
+  .ictd-game-players { flex: 1; min-width: 180px; color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; word-break: break-word; } /* issue #22 */
   .ictd-game-result { font-family: var(--font-mono); font-weight: 800; color: var(--accent); }
   .ictd-game-meta { color: var(--text-muted); font-size: 11.5px; }
 
@@ -221,8 +221,8 @@
 <script src="/js/header.js"></script>
 
 <div class="ictd-page" id="ictd-page">
-  <a href="/interclub-tournaments" class="ictd-back-link">← Все межклубные турниры</a>
-  <div class="ictd-loading" id="ictd-loading"><div class="ic">⏳</div><div>Загружаем турнир...</div></div>
+  <a href="/interclub-tournaments" class="ictd-back-link" data-i18n="interclub.back_detail">← Все межклубные турниры</a>
+  <div class="ictd-loading" id="ictd-loading"><div class="ic">⏳</div><div data-i18n="interclub.loading_one">Загружаем турнир...</div></div>
   <div id="ictd-content" style="display:none"></div>
 </div>
 
@@ -230,16 +230,16 @@
 <div class="modal-overlay" id="team-modal">
   <div class="modal-box">
     <div class="modal-header">
-      <div class="modal-title">🎽 Выберите команду</div>
+      <div class="modal-title" data-i18n="interclub.select_team">🎽 Выберите команду</div>
       <button class="modal-close" onclick="closeTeamModal()">✕</button>
     </div>
-    <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;">
+    <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;" data-i18n="interclub.select_team_desc">
       Играть можно только за клуб, участником которого вы состоите. Выбор команды после первой сыгранной партии изменить нельзя.
     </p>
     <div class="team-select-list" id="team-select-list"></div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeTeamModal()">Отмена</button>
-      <button class="btn-submit" id="btn-team-confirm" onclick="confirmTeamSelection()">✅ Участвовать</button>
+      <button class="btn-cancel" data-i18n="interclub.cancel" onclick="closeTeamModal()">Отмена</button>
+      <button class="btn-submit" id="btn-team-confirm" data-i18n="interclub.confirm_join" onclick="confirmTeamSelection()">✅ Участвовать</button>
     </div>
   </div>
 </div>
@@ -260,6 +260,14 @@ let countdownTimer = null;
 
 let joinTournamentId = null;
 let joinSelectedTeamId = null;
+
+// ── i18n helpers (словарь подгружается header.js через /js/i18n.js) ──
+function T(key, vars) { return (window.CH_I18N && window.CH_I18N.t) ? CH_I18N.t(key, vars) : key; }
+async function waitI18nReady() {
+  let tries = 0;
+  while (!(window.CH_I18N && window.CH_I18N.onReady) && tries < 100) { await new Promise(r => setTimeout(r, 50)); tries++; }
+  if (window.CH_I18N && window.CH_I18N.onReady) await new Promise(r => CH_I18N.onReady(r));
+}
 
 // pendingResume: если игрок нажал "Играть" до auth_ok — запомним и выполним после
 let _pendingResume = false;
@@ -290,6 +298,7 @@ function formatMskShort(ts) {
 
 // ── INIT ──
 async function init() {
+  await waitI18nReady();
   try {
     const r = await fetch(API + '/me', { credentials: 'same-origin' });
     if (r.ok) currentUser = await safeJson(r);
@@ -407,22 +416,22 @@ function updateMyStatusBanner() {
 
   if (isReallyPlaying) {
     banner.style.cssText = BASE + 'rgba(76,175,114,0.35);background:rgba(76,175,114,0.08)';
-    banner.innerHTML = '<span style="font-size:22px">⚡</span><div style="flex:1"><div style="color:var(--green)">Вы сейчас играете</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">Партия идёт</div></div><a href="/game/' + myPart.currentGameId + '" class="btn btn-primary" style="font-size:12px;padding:7px 14px">♟ Перейти</a>';
+    banner.innerHTML = '<span style="font-size:22px">⚡</span><div style="flex:1"><div style="color:var(--green)">' + T('interclub.playing_now') + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">' + T('interclub.game_in_progress') + '</div></div><a href="/game/' + myPart.currentGameId + '" class="btn btn-primary" style="font-size:12px;padding:7px 14px">' + T('interclub.go_to_game') + '</a>';
   } else if (myPart.waiting && graceLeft > 0) {
     banner.style.cssText = BASE + 'rgba(201,168,76,0.3);background:rgba(201,168,76,0.07)';
     const secs = Math.ceil(graceLeft / 1000);
-    banner.innerHTML = '<div style="width:18px;height:18px;border:2px solid rgba(201,168,76,0.3);border-top-color:var(--accent);border-radius:50%;animation:tSpin 0.8s linear infinite;flex-shrink:0"></div><div style="flex:1"><div style="color:var(--accent)">Следующая партия через ' + secs + 'с...</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">Успеете поставить паузу, если не готовы играть</div></div><button onclick="pauseTournament()" class="btn btn-secondary" style="font-size:12px;padding:7px 14px">⏸ Пауза</button>';
+    banner.innerHTML = '<div style="width:18px;height:18px;border:2px solid rgba(201,168,76,0.3);border-top-color:var(--accent);border-radius:50%;animation:tSpin 0.8s linear infinite;flex-shrink:0"></div><div style="flex:1"><div style="color:var(--accent)">' + T('interclub.next_game_in', { n: secs }) + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">' + T('interclub.pause_hint') + '</div></div><button onclick="pauseTournament()" class="btn btn-secondary" style="font-size:12px;padding:7px 14px">' + T('interclub.pause_btn') + '</button>';
     // Перерисовываем раз в секунду, пока идёт отсчёт — свежего tournament_update от сервера в это время не будет
     _graceBannerTimer = setTimeout(updateMyStatusBanner, 1000);
   } else if (myPart.waiting) {
     banner.style.cssText = BASE + 'rgba(201,168,76,0.3);background:rgba(201,168,76,0.07)';
-    banner.innerHTML = '<div style="width:18px;height:18px;border:2px solid rgba(201,168,76,0.3);border-top-color:var(--accent);border-radius:50%;animation:tSpin 0.8s linear infinite;flex-shrink:0"></div><div style="flex:1"><div style="color:var(--accent)">Ищем соперника...</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">Одноклубники друг с другом не встречаются</div></div><button onclick="pauseTournament()" class="btn btn-secondary" style="font-size:12px;padding:7px 14px">⏸ Пауза</button>';
+    banner.innerHTML = '<div style="width:18px;height:18px;border:2px solid rgba(201,168,76,0.3);border-top-color:var(--accent);border-radius:50%;animation:tSpin 0.8s linear infinite;flex-shrink:0"></div><div style="flex:1"><div style="color:var(--accent)">' + T('interclub.searching') + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">' + T('interclub.no_same_club') + '</div></div><button onclick="pauseTournament()" class="btn btn-secondary" style="font-size:12px;padding:7px 14px">' + T('interclub.pause_btn') + '</button>';
   } else {
     banner.style.cssText = BASE + 'var(--border);background:var(--bg-secondary)';
     const pauseLabel = myPart.paused
-      ? '<div style="color:var(--text-secondary)">На паузе</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">Нажмите чтобы возобновить поиск</div>'
-      : '<div style="color:var(--text-secondary)">Партия завершена</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">Нажмите ▶ Играть когда будете готовы</div>';
-    banner.innerHTML = '<span style="font-size:22px">⏸</span><div style="flex:1">' + pauseLabel + '</div><button onclick="resumeTournament()" class="btn btn-primary" style="font-size:12px;padding:7px 14px">▶ Играть</button>';
+      ? '<div style="color:var(--text-secondary)">' + T('interclub.on_pause') + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">' + T('interclub.resume_hint') + '</div>'
+      : '<div style="color:var(--text-secondary)">' + T('interclub.game_finished') + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:400">' + T('interclub.ready_hint') + '</div>';
+    banner.innerHTML = '<span style="font-size:22px">⏸</span><div style="flex:1">' + pauseLabel + '</div><button onclick="resumeTournament()" class="btn btn-primary" style="font-size:12px;padding:7px 14px">' + T('interclub.play_btn') + '</button>';
   }
   banner.style.display = 'flex';
 }
@@ -464,7 +473,7 @@ function updateCountdown() {
 // ── RENDER ──
 function render() {
   const t = tournament;
-  const statusLabel = { active: 'Идёт', upcoming: 'Скоро', finished: 'Завершён' }[t.status] || t.status;
+  const statusLabel = { active: T('interclub.status_active'), upcoming: T('interclub.status_soon'), finished: T('interclub.status_finished') }[t.status] || t.status;
   const statusIcon  = { active: '⚡', upcoming: '🕐', finished: '🏁' }[t.status];
   const isAdmin = currentUser && currentUser.role === 'admin';
   const parts = (t.participants || []).filter(p => !p.anticheatBanned);
@@ -477,13 +486,13 @@ function render() {
 
   let actionBtn = '';
   if (!currentUser) {
-    actionBtn = `<button class="btn btn-secondary" disabled>Войдите чтобы участвовать</button>`;
+    actionBtn = `<button class="btn btn-secondary" disabled>${T('interclub.login_to_join')}</button>`;
   } else if (t.status === 'finished') {
     actionBtn = '';
   } else if (myPart) {
-    actionBtn = `<button class="btn btn-danger" onclick="leaveTournament()">🚪 Покинуть турнир</button>`;
+    actionBtn = `<button class="btn btn-danger" onclick="leaveTournament()">${T('interclub.leave')}</button>`;
   } else {
-    actionBtn = `<button class="btn btn-primary" onclick="joinFlow()">⚔️ Участвовать</button>`;
+    actionBtn = `<button class="btn btn-primary" onclick="joinFlow()">${T('interclub.join')}</button>`;
   }
 
   const adminBtns = isAdmin ? `
@@ -500,7 +509,7 @@ function render() {
         <div class="ictd-hero-info">
           <div class="ictd-badge ${t.status}"><span class="ictd-status-dot"></span>${statusIcon} ${statusLabel}</div>
           <h1 class="ictd-title">${escHtml(t.name)}</h1>
-          <div class="ictd-organizer">🛡 Организатор: <b>${escHtml(t.createdByIsAdmin ? 'Администрация Chess Home' : t.createdBy)}</b>${startsAtStr ? ` &nbsp;·&nbsp; 📅 Начало: <b>${escHtml(startsAtStr)}</b>` : ''}</div>
+          <div class="ictd-organizer">🛡 ${T('interclub.organized_by')}: <b>${escHtml(t.createdByIsAdmin ? 'Администрация Chess Home' : t.createdBy)}</b>${startsAtStr ? ` &nbsp;·&nbsp; 📅 ${T('interclub.starts_at')}: <b>${escHtml(startsAtStr)}</b>` : ''}</div>
           ${t.description ? `<div class="ictd-desc">${escHtml(t.description)}</div>` : ''}
         </div>
         ${adminBtns}
@@ -508,25 +517,25 @@ function render() {
     </div>
 
     <div class="ictd-stats">
-      <div class="ictd-stat"><div class="ictd-stat-label">⏱ Контроль</div><div class="ictd-stat-value" style="font-family:var(--font-mono)">${escHtml(t.timeControl)}</div></div>
-      <div class="ictd-stat"><div class="ictd-stat-label">🛡 Команд</div><div class="ictd-stat-value">${teams.length}</div></div>
-      <div class="ictd-stat"><div class="ictd-stat-label">👥 Участников</div><div class="ictd-stat-value">${parts.length}</div></div>
-      <div class="ictd-stat"><div class="ictd-stat-label">♟ Партий сыграно</div><div class="ictd-stat-value">${(t.games || []).length}</div></div>
-      ${(t.minRating || (t.maxRating && t.maxRating < 9999)) ? `<div class="ictd-stat"><div class="ictd-stat-label">⭐ Рейтинг</div><div class="ictd-stat-value">${t.minRating||0}–${t.maxRating>=9999?'∞':t.maxRating}</div></div>` : ''}
+      <div class="ictd-stat"><div class="ictd-stat-label">⏱ ${T('interclub.stat_control')}</div><div class="ictd-stat-value" style="font-family:var(--font-mono)">${escHtml(t.timeControl)}</div></div>
+      <div class="ictd-stat"><div class="ictd-stat-label">🛡 ${T('interclub.stat_teams')}</div><div class="ictd-stat-value">${teams.length}</div></div>
+      <div class="ictd-stat"><div class="ictd-stat-label">👥 ${T('interclub.stat_players')}</div><div class="ictd-stat-value">${parts.length}</div></div>
+      <div class="ictd-stat"><div class="ictd-stat-label">♟ ${T('interclub.stat_games')}</div><div class="ictd-stat-value">${(t.games || []).length}</div></div>
+      ${(t.minRating || (t.maxRating && t.maxRating < 9999)) ? `<div class="ictd-stat"><div class="ictd-stat-label">⭐ ${T('interclub.stat_rating')}</div><div class="ictd-stat-value">${t.minRating||0}–${t.maxRating>=9999?'∞':t.maxRating}</div></div>` : ''}
     </div>
 
     ${t.status !== 'finished' ? `
     <div class="ictd-countdown">
-      <div class="ictd-countdown-label">${t.status === 'upcoming' ? 'Начало через' : 'До конца'}</div>
+      <div class="ictd-countdown-label">${t.status === 'upcoming' ? T('interclub.countdown_start') : T('interclub.countdown_end')}</div>
       <div class="ictd-countdown-value" id="ictd-countdown-value">--:--:--</div>
     </div>` : ''}
 
     <div class="ictd-actions-row">
       ${actionBtn}
-      ${myPart ? `<div class="ictd-my-team-banner">🎽 Вы играете за <b>${escHtml(myTeam ? myTeam.name : 'команду')}</b> · очки: ${myPart.score || 0}</div>` : ''}
+      ${myPart ? `<div class="ictd-my-team-banner">🎽 ${T('interclub.playing_for')} <b>${escHtml(myTeam ? myTeam.name : T('interclub.team_fallback'))}</b> · ${T('interclub.score_label')}: ${myPart.score || 0}</div>` : ''}
     </div>
 
-    <div class="ictd-section-title">🛡 Команды-участники (${teams.length})</div>
+    <div class="ictd-section-title">🛡 ${T('interclub.teams_participants')} (${teams.length})</div>
     <div class="ictd-teams-row">
       ${teams.map(tm => `<a href="/clubs/${escHtml(tm.id)}" class="ictd-team-chip${myPart && myPart.teamId === tm.id ? ' mine' : ''}">${escHtml(tm.name)} <span style="opacity:.6">· ${tm.memberCount}</span></a>`).join('')}
     </div>
@@ -534,9 +543,9 @@ function render() {
     <div id="my-status-banner" style="display:none"></div>
 
     <div class="ictd-tabs">
-      <button class="ictd-tab ${currentTab === 'standings' ? 'active' : ''}" onclick="setTab('standings')">🏆 Таблица лидеров</button>
-      <button class="ictd-tab ${currentTab === 'games' ? 'active' : ''}" onclick="setTab('games')">♟ Партии (${(t.games || []).length})</button>
-      <button class="ictd-tab ${currentTab === 'chat' ? 'active' : ''}" onclick="setTab('chat')">💬 Чат</button>
+      <button class="ictd-tab ${currentTab === 'standings' ? 'active' : ''}" onclick="setTab('standings')">${T('interclub.tab_standings')}</button>
+      <button class="ictd-tab ${currentTab === 'games' ? 'active' : ''}" onclick="setTab('games')">♟ ${T('interclub.tab_games')} (${(t.games || []).length})</button>
+      <button class="ictd-tab ${currentTab === 'chat' ? 'active' : ''}" onclick="setTab('chat')">${T('interclub.tab_chat')}</button>
     </div>
 
     <div class="ictd-tabpanel ${currentTab === 'standings' ? 'active' : ''}" id="tab-standings">
@@ -549,7 +558,7 @@ function render() {
       <div class="ictd-chat-box">
         <div class="ictd-chat-msgs" id="ictd-chat-msgs"></div>
         <div class="ictd-chat-input-row">
-          <input type="text" id="ictd-chat-input" placeholder="${currentUser ? 'Сообщение...' : 'Войдите, чтобы писать в чат'}" ${currentUser ? '' : 'disabled'} maxlength="300" onkeydown="if(event.key==='Enter')sendChatMsg()">
+          <input type="text" id="ictd-chat-input" placeholder="${currentUser ? T('interclub.chat_placeholder') : T('interclub.chat_login_placeholder')}" ${currentUser ? '' : 'disabled'} maxlength="300" onkeydown="if(event.key==='Enter')sendChatMsg()">
           <button class="btn btn-primary" onclick="sendChatMsg()" ${currentUser ? '' : 'disabled'}>➤</button>
         </div>
       </div>
@@ -750,6 +759,11 @@ async function deleteTournament() {
 }
 
 document.getElementById('team-modal').addEventListener('click', function (e) { if (e.target === this) closeTeamModal(); });
+
+// Смена языка — перерисовываем страницу турнира (паттерн blog.html)
+document.addEventListener('ch-lang-changed', () => {
+  if (tournament) render();
+});
 
 init();
 </script>

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"html/template"
 	"log"
 	"math"
 	"net/http"
@@ -29,37 +28,9 @@ type ratingResponse struct {
 	BlackRating int `json:"blackRating"`
 }
 
-func testPageHandler(w http.ResponseWriter, r *http.Request) {
-	var clubsCount int
-	err := db.QueryRow(context.Background(), "SELECT COUNT(*) FROM clubs").Scan(&clubsCount)
-	if err != nil {
-		http.Error(w, "Ошибка базы: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	tmpl, err := template.ParseFiles("../public/test.html")
-	if err != nil {
-		http.Error(w, "Ошибка шаблона: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	data := map[string]int{
-		"ClubsCount": clubsCount,
-	}
-
-	tmpl.Execute(w, data)
-}
-
-func dbTestHandler(w http.ResponseWriter, r *http.Request) {
-	var count int
-	err := db.QueryRow(context.Background(), "SELECT COUNT(*) FROM users").Scan(&count)
-	if err != nil {
-		http.Error(w, "Ошибка базы: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"users_count": count})
-}
+// Debug-эндпоинты /test и /dbtest УДАЛЕНЫ (аудит безопасности, пункт M5):
+// они были доступны снаружи через nginx (/go/ -> 127.0.0.1:8081) и раскрывали
+// служебную информацию (счётчик пользователей, страница-заглушка).
 
 func ratingHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -83,6 +54,13 @@ func ratingHandler(w http.ResponseWriter, r *http.Request) {
 		whiteScore = 0.5
 	default:
 		http.Error(w, "bad result", http.StatusBadRequest)
+		return
+	}
+
+	// Валидация входа: рейтинги должны быть в разумных границах — мусор
+	// от кривого клиента не должен ломать Elo-расчёт.
+	if req.WhiteRating < 100 || req.WhiteRating > 4000 || req.BlackRating < 100 || req.BlackRating > 4000 {
+		http.Error(w, "bad rating", http.StatusBadRequest)
 		return
 	}
 
@@ -156,8 +134,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/test", testPageHandler)
-	mux.HandleFunc("/dbtest", dbTestHandler)
+	// БАГ (исправлен): ratingHandler существовал, но НЕ был зарегистрирован —
+	// Node.js (core.js calcNewRatings) всегда падал в JS-fallback, Go-расчёт
+	// Elo был мёртвым кодом.
+	mux.HandleFunc("/api/rating/calculate", ratingHandler)
 	mux.HandleFunc("/api/rating/puzzle/calculate", puzzleRatingHandler)
 
 	nodeURL, _ := url.Parse("http://127.0.0.1:10000")

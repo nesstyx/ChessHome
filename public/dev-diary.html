@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Дневник разработки — Chess Home</title>
+  <title data-i18n="devdiary.page_title">Дневник разработки — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="icon" href="/img/logo/favicon.png">
   <style>
@@ -154,16 +154,16 @@
 <body>
   <div id="app">
     <div class="page-header">
-      <h1>📔 Дневник разработки</h1>
-      <p>Новости, обновления и новые фишки Chess Home</p>
+      <h1 data-i18n="devdiary.title">📔 Дневник разработки</h1>
+      <p data-i18n="devdiary.subtitle">Новости, обновления и новые фишки Chess Home</p>
     </div>
 
     <!-- Форма добавления (видна только админам) -->
     <div id="dev-diary-form" class="dev-diary-form" style="display: none;">
-      <h3>➕ Новая запись</h3>
-      <input type="text" id="dev-diary-title" class="form-input" placeholder="Заголовок (макс 100 симв.)" maxlength="100" style="margin-bottom:12px;">
-      <textarea id="dev-diary-content" class="form-input" rows="5" placeholder="Текст записи (макс 2000 симв.)" maxlength="2000" style="margin-bottom:12px;"></textarea>
-      <button class="btn btn-primary" onclick="submitDevDiaryEntry()">Опубликовать</button>
+      <h3 data-i18n="devdiary.admin_new_title">➕ Новая запись</h3>
+      <input type="text" id="dev-diary-title" class="form-input" placeholder="Заголовок (макс 100 симв.)" maxlength="100" style="margin-bottom:12px;" data-i18n-placeholder="devdiary.auth_pages">
+      <textarea id="dev-diary-content" class="form-input" rows="5" placeholder="Текст записи (макс 2000 симв.)" maxlength="2000" style="margin-bottom:12px;" data-i18n-placeholder="devdiary.auth_next"></textarea>
+      <button class="btn btn-primary" onclick="submitDevDiaryEntry()" data-i18n="devdiary.admin_publish">Опубликовать</button>
     </div>
 
     <!-- Список записей -->
@@ -177,9 +177,26 @@
   <script>
     const ALLOWED_EMOJIS = ['👍','❤️','🔥','😂','🤯'];
 
+    // ── i18n helpers (словарь подгружается header.js через /js/i18n.js) ──
+    async function waitI18nReady() {
+      let tries = 0;
+      while (!(window.CH_I18N && window.CH_I18N.onReady) && tries < 100) { await new Promise(r => setTimeout(r, 50)); tries++; }
+      if (window.CH_I18N && window.CH_I18N.onReady) await new Promise(r => CH_I18N.onReady(r));
+    }
+
+    // i18n-хелпер: словарь может быть ещё не загружен — тогда русский fallback
+    function T(key, fallback) {
+      try {
+        const v = window.CH_I18N ? window.CH_I18N.t(key) : undefined;
+        if (v && v !== key) return v;
+      } catch (e) { /* i18n недоступен */ }
+      return fallback !== undefined ? fallback : key;
+    }
+
     let currentPage  = 1;
     let totalPages   = 1;
     let currentUser  = null;
+    let diaryLoaded  = false; // слежим за первой загрузкой — перерисовываем при смене языка
     // Авторизация теперь через HttpOnly-cookie (ch_token) — не localStorage.
 
     // ─── Текущий пользователь ────────────────────────────────────
@@ -206,7 +223,7 @@
         currentPage   = data.page || 1;
 
         if (!entries.length) {
-          listDiv.innerHTML = '<div class="empty-state">📭 Пока нет записей. Следите за обновлениями!</div>';
+          listDiv.innerHTML = '<div class="empty-state">' + T('devdiary.empty', '📭 Пока нет записей. Следите за обновлениями!') + '</div>';
           paginationDiv.innerHTML = '';
           return;
         }
@@ -220,9 +237,10 @@
         }
 
         renderPagination();
+        diaryLoaded = true;
       } catch (err) {
         console.error(err);
-        listDiv.innerHTML = '<div class="empty-state">❌ Ошибка загрузки дневника разработки</div>';
+        listDiv.innerHTML = '<div class="empty-state">' + T('devdiary.error_load', '❌ Ошибка загрузки дневника разработки') + '</div>';
       }
     }
 
@@ -242,19 +260,19 @@
 
           ${isAdmin ? `
             <div class="dev-diary-admin-actions">
-              <button class="btn btn-sm btn-danger" onclick="deleteDevDiaryEntry('${entry.id}')">🗑 Удалить запись</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteDevDiaryEntry('${entry.id}')">${T('devdiary.delete_entry', '🗑 Удалить запись')}</button>
             </div>
           ` : ''}
 
           <!-- Реакции -->
           <div class="reactions-bar" id="reactions-${entry.id}">
-            <span style="font-size:13px;color:var(--text-muted,#888)">Загрузка реакций…</span>
+            <span style="font-size:13px;color:var(--text-muted,#888)">${T('devdiary.reactions_loading', 'Загрузка реакций…')}</span>
           </div>
 
           <!-- Комментарии -->
           <div class="comments-section">
             <button class="comments-toggle" onclick="toggleComments('${entry.id}', this)">
-              💬 <span class="ct-label">Показать комментарии</span>
+              💬 <span class="ct-label">${T('devdiary.show_comments', 'Показать комментарии')}</span>
             </button>
             <div class="comments-body" id="comments-${entry.id}" style="display:none;"></div>
           </div>
@@ -284,13 +302,13 @@
         const disabled = !isLoggedIn ? ' style="opacity:0.5;cursor:default;"' : '';
         const clickAction = isLoggedIn
           ? `onclick="sendReaction('${entryId}', '${emoji}')"`
-          : `onclick="alert('Войдите, чтобы ставить реакции')"`;
+          : `onclick="alert('${T('devdiary.login_to_react', 'Войдите, чтобы ставить реакции')}')"`;
         html += `<button class="reaction-btn${active}" ${clickAction}${disabled} title="${emoji}">
           ${emoji}<span class="rc">${cnt > 0 ? cnt : ''}</span>
         </button>`;
       }
       if (!isLoggedIn) {
-        html += `<span class="reactions-login-hint">Войдите, чтобы реагировать</span>`;
+        html += `<span class="reactions-login-hint">${T('devdiary.react_login_hint', 'Войдите, чтобы реагировать')}</span>`;
       }
       bar.innerHTML = html;
     }
@@ -306,7 +324,7 @@
         });
         if (!res.ok) { const e = await res.json(); alert(e.error); return; }
         loadReactions(entryId); // обновить после действия
-      } catch (e) { alert('Ошибка'); }
+      } catch (e) { alert(T('devdiary.react_error', 'Ошибка')); }
     }
 
     // ─── Комментарии ─────────────────────────────────────────────
@@ -317,25 +335,25 @@
       const label = btn.querySelector('.ct-label');
       if (body.style.display === 'none') {
         body.style.display = 'block';
-        label.textContent = 'Скрыть комментарии';
+        label.textContent = T('devdiary.hide_comments', 'Скрыть комментарии');
         if (!commentsState[entryId]) await loadComments(entryId, 1);
       } else {
         body.style.display = 'none';
-        label.textContent = 'Показать комментарии';
+        label.textContent = T('devdiary.show_comments', 'Показать комментарии');
       }
     }
 
     async function loadComments(entryId, page = 1) {
       const body = document.getElementById('comments-' + entryId);
       if (!body) return;
-      body.innerHTML = '<div style="color:var(--text-muted,#888);font-size:13px;padding:8px 0">Загрузка…</div>';
+      body.innerHTML = '<div style="color:var(--text-muted,#888);font-size:13px;padding:8px 0">' + T('devdiary.comments_loading', 'Загрузка…') + '</div>';
       try {
         const res  = await fetch(`/api/dev-diary/${entryId}/comments?page=${page}`);
         const data = await res.json();
         commentsState[entryId] = { page: data.page, totalPages: data.totalPages };
         renderComments(entryId, data.comments || [], data.page, data.totalPages);
       } catch {
-        body.innerHTML = '<div style="color:#e74c3c;font-size:13px">Ошибка загрузки комментариев</div>';
+        body.innerHTML = '<div style="color:#e74c3c;font-size:13px">' + T('devdiary.comments_error', 'Ошибка загрузки комментариев') + '</div>';
       }
     }
 
@@ -345,7 +363,7 @@
       let html = '';
 
       if (!comments.length && page === 1) {
-        html += '<div style="color:var(--text-muted,#888);font-size:13px;padding:6px 0">Комментариев ещё нет. Будьте первым!</div>';
+        html += '<div style="color:var(--text-muted,#888);font-size:13px;padding:6px 0">' + T('devdiary.no_comments', 'Комментариев ещё нет. Будьте первым!') + '</div>';
       } else {
         for (const c of comments) {
           const time = new Date(c.createdAt).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -358,7 +376,7 @@
               <div class="comment-text">${escapeHtml(c.content).replace(/\n/g,'<br>')}</div>
               ${isAdmin ? `
                 <div class="comment-admin-actions">
-                  <button class="btn btn-sm btn-danger" onclick="deleteComment('${entryId}', '${c.id}', ${page})">🗑 Удалить</button>
+                  <button class="btn btn-sm btn-danger" onclick="deleteComment('${entryId}', '${c.id}', ${page})">${T('devdiary.delete_btn', '🗑 Удалить')}</button>
                   <button class="btn btn-sm btn-warn"   onclick="banCommentUser('${escapeHtml(c.username)}', 'ban')">🚫 Забанить в комментах</button>
                 </div>
               ` : ''}
@@ -370,12 +388,12 @@
       // Пагинация комментов
       if (totalPages > 1) {
         html += '<div class="comment-pagination" id="cpag-' + entryId + '">';
-        html += `<button onclick="loadComments('${entryId}', ${page - 1})" ${page===1?'disabled':''}>← Назад</button>`;
+        html += `<button onclick="loadComments('${entryId}', ${page - 1})" ${page===1?'disabled':''}>${T('devdiary.prev', '← Назад')}</button>`;
         const start = Math.max(1, page - 2), end = Math.min(totalPages, start + 4);
         for (let i = start; i <= end; i++) {
           html += `<button onclick="loadComments('${entryId}', ${i})" class="${i===page?'cp-active':''}">${i}</button>`;
         }
-        html += `<button onclick="loadComments('${entryId}', ${page + 1})" ${page===totalPages?'disabled':''}>Вперёд →</button>`;
+        html += `<button onclick="loadComments('${entryId}', ${page + 1})" ${page===totalPages?'disabled':''}>${T('devdiary.next', 'Вперёд →')}</button>`;
         html += '</div>';
       }
 
@@ -383,10 +401,10 @@
       if (currentUser) {
         html += `
           <div class="comments-form">
-            <textarea id="ctxt-${entryId}" placeholder="Ваш комментарий (макс 500 симв.)" maxlength="500"></textarea>
-            <button class="btn btn-primary btn-sm send-btn" onclick="sendComment('${entryId}')">Отправить</button>
+            <textarea id="ctxt-${entryId}" placeholder="${T('devdiary.comment_placeholder', 'Ваш комментарий (макс 500 симв.)')}" maxlength="500"></textarea>
+            <button class="btn btn-primary btn-sm send-btn" onclick="sendComment('${entryId}')">${T('devdiary.comment_send', 'Отправить')}</button>
           </div>
-          <div class="comment-limit-info">Лимит: 5 комментариев в сутки</div>
+          <div class="comment-limit-info">${T('devdiary.comment_limit_hint', 'Лимит: 5 комментариев в сутки')}</div>
         `;
         // Кнопка разблокировки для адм
         if (isAdmin) {
@@ -396,7 +414,7 @@
           </div>`;
         }
       } else {
-        html += `<div class="comment-login-hint">Войдите, чтобы оставить комментарий</div>`;
+        html += `<div class="comment-login-hint">${T('devdiary.login_to_comment', 'Войдите, чтобы оставить комментарий')}</div>`;
       }
 
       body.innerHTML = html;
@@ -414,13 +432,13 @@
           body: JSON.stringify({ content })
         });
         const data = await res.json();
-        if (!res.ok) { alert(data.error || 'Ошибка'); return; }
+        if (!res.ok) { alert(data.error || T('devdiary.react_error', 'Ошибка')); return; }
         ta.value = '';
         // Перезагрузить последнюю страницу, чтобы новый коммент был виден
         const state = commentsState[entryId];
         const targetPage = state ? state.totalPages : 1;
         await loadComments(entryId, targetPage);
-      } catch { alert('Ошибка отправки'); }
+      } catch { alert(T('devdiary.react_error', 'Ошибка отправки')); }
     }
 
     async function deleteComment(entryId, commentId, page) {
@@ -433,13 +451,13 @@
           credentials: 'include'
         });
         if (!res.ok) {
-          let msg = 'Ошибка';
+          let msg = T('devdiary.react_error', 'Ошибка');
           try { msg = (await res.json()).error || msg; } catch {}
           alert(msg);
           return;
         }
         loadComments(entryId, page);
-      } catch { alert('Ошибка'); }
+      } catch { alert(T('devdiary.react_error', 'Ошибка')); }
     }
 
     async function banCommentUser(username, action) {
@@ -456,9 +474,9 @@
           body: JSON.stringify({ username: username.trim(), action })
         });
         const data = await res.json();
-        if (!res.ok) { alert(data.error || 'Ошибка'); return; }
+        if (!res.ok) { alert(data.error || T('devdiary.react_error', 'Ошибка')); return; }
         alert(action === 'ban' ? `${username} заблокирован в комментариях` : `${username} разблокирован`);
-      } catch { alert('Ошибка'); }
+      } catch { alert(T('devdiary.react_error', 'Ошибка')); }
     }
 
     // ─── Пагинация постов ────────────────────────────────────────
@@ -466,12 +484,12 @@
       const paginationDiv = document.getElementById('dev-diary-pagination');
       if (totalPages <= 1) { paginationDiv.innerHTML = ''; return; }
       let html = '';
-      html += `<button onclick="loadDevDiary(${currentPage - 1})" ${currentPage===1?'disabled':''}>← Назад</button>`;
+      html += `<button onclick="loadDevDiary(${currentPage - 1})" ${currentPage===1?'disabled':''}>${T('devdiary.prev', '← Назад')}</button>`;
       const start = Math.max(1, currentPage - 2), end = Math.min(totalPages, start + 4);
       for (let i = start; i <= end; i++) {
         html += `<button onclick="loadDevDiary(${i})" class="${i===currentPage?'active-page':''}">${i}</button>`;
       }
-      html += `<button onclick="loadDevDiary(${currentPage + 1})" ${currentPage===totalPages?'disabled':''}>Вперёд →</button>`;
+      html += `<button onclick="loadDevDiary(${currentPage + 1})" ${currentPage===totalPages?'disabled':''}>${T('devdiary.next', 'Вперёд →')}</button>`;
       paginationDiv.innerHTML = html;
     }
 
@@ -490,7 +508,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, content })
         });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Ошибка'); }
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error || T('devdiary.react_error', 'Ошибка')); }
         document.getElementById('dev-diary-title').value   = '';
         document.getElementById('dev-diary-content').value = '';
         loadDevDiary(1);
@@ -500,20 +518,21 @@
     // ─── Удаление записи (админ) ─────────────────────────────────
     async function deleteDevDiaryEntry(id) {
       if (!currentUser || currentUser.role !== 'admin') { alert('Доступ запрещён'); return; }
-      if (!confirm('Удалить эту запись вместе со всеми реакциями и комментариями?')) return;
+      if (!confirm(T('devdiary.delete_confirm', 'Удалить эту запись вместе со всеми реакциями и комментариями?'))) return;
       try {
         // POST вместо DELETE — см. комментарий в deleteComment выше.
         const res = await fetch(`/api/dev-diary/${id}/delete`, {
           method: 'POST',
           credentials: 'include'
         });
-        if (!res.ok) throw new Error('Ошибка удаления');
+        if (!res.ok) throw new Error(T('devdiary.react_error', 'Ошибка удаления'));
         loadDevDiary(currentPage);
       } catch (err) { alert(err.message); }
     }
 
     // ─── Инициализация ───────────────────────────────────────────
     async function initPage() {
+      await waitI18nReady();
       await fetchCurrentUser();
       if (currentUser && currentUser.role === 'admin') {
         const formDiv = document.getElementById('dev-diary-form');
@@ -521,6 +540,11 @@
       }
       loadDevDiary(1);
     }
+
+    // Перерисовка при смене языка (если дневник уже был загружен)
+    document.addEventListener('ch-lang-changed', () => {
+      if (diaryLoaded) loadDevDiary(currentPage);
+    });
 
     function escapeHtml(str) {
       if (!str) return '';

@@ -87,97 +87,6 @@ async function withTransaction(fn) {
 }
 
 
-// ── Email верификация ─────────────────────────────────────────
-const { Resend } = require('resend');
-
-
-const pendingPasswordChanges = new Map();
-
-const pendingDeletions = new Map();
-
-// 2FA: код входа, отправленный на почту, ждёт подтверждения перед выдачей jwt.
-const pendingLogins = new Map();
-
-// Не даём спамить письма при повторных заходах/выходах — пока предыдущий
-// код ещё "свежий", новый не шлём, просто говорим, что он уже отправлен.
-const TWO_FA_RESEND_COOLDOWN_MS = 30 * 1000;
-
-const twoFactorLastSent = new Map();
- // username_low -> timestamp
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [code, d] of pendingPasswordChanges.entries()) {
-    if (now > d.expiresAt) pendingPasswordChanges.delete(code);
-  }
-  for (const [code, d] of pendingDeletions.entries()) {
-    if (now > d.expiresAt) pendingDeletions.delete(code);
-  }
-  for (const [code, d] of pendingLogins.entries()) {
-    if (now > d.expiresAt) pendingLogins.delete(code);
-  }
-}, 10 * 60 * 1000);
-
-
-async function sendPasswordChangeEmail(email, code) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({
-    from: 'Chess Home <noreply@chesshome.pro>',
-    to: email,
-    subject: 'Смена пароля — Chess Home',
-    html: `
-      <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#1a1a2e;color:#e0e0e0;border-radius:12px">
-        <h2 style="color:#7c9cbf;margin-top:0">♟️ Chess Home</h2>
-        <p>Вы запросили смену пароля. Ваш код подтверждения:</p>
-        <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:#fff;background:#0f0f1e;padding:20px;border-radius:8px;text-align:center">${code}</div>
-        <p style="color:#888;font-size:13px;margin-top:24px">Код действует 15 минут. Если вы не запрашивали смену пароля — немедленно смените пароль или обратитесь в поддержку.</p>
-      </div>
-    `
-  });
-  if (error) throw new Error(error.message);
-}
-
-
-async function sendTwoFactorLoginEmail(email, code) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({
-    from: 'Chess Home <noreply@chesshome.pro>',
-    to: email,
-    subject: 'Код входа — Chess Home',
-    html: `
-      <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#1a1a2e;color:#e0e0e0;border-radius:12px">
-        <h2 style="color:#7c9cbf;margin-top:0">♟️ Chess Home</h2>
-        <p>Кто-то (надеемся, что вы) пытается войти в ваш аккаунт. Код подтверждения входа:</p>
-        <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:#fff;background:#0f0f1e;padding:20px;border-radius:8px;text-align:center">${code}</div>
-        <p style="color:#888;font-size:13px;margin-top:24px">Код действует 10 минут. Если это были не вы — просто проигнорируйте письмо, пароль остаётся прежним.</p>
-      </div>
-    `
-  });
-  if (error) throw new Error(error.message);
-}
-
-
-async function sendDeleteAccountEmail(email, username, code) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({
-    from: 'Chess Home <noreply@chesshome.pro>',
-    to: email,
-    subject: 'Удаление аккаунта — Chess Home',
-    html: `
-      <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#1a1a2e;color:#e0e0e0;border-radius:12px">
-        <h2 style="color:#c0392b;margin-top:0">⚠️ Chess Home — Удаление аккаунта</h2>
-        <p>Поступил запрос на <strong>безвозвратное удаление</strong> аккаунта <strong>${username}</strong>.</p>
-        <p>Код подтверждения:</p>
-        <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:#fff;background:#0f0f1e;padding:20px;border-radius:8px;text-align:center">${code}</div>
-        <p style="color:#e74c3c;font-size:13px;margin-top:16px">⚠️ После удаления аккаунт восстановить невозможно. Ник будет навсегда заблокирован для регистрации.</p>
-        <p style="color:#888;font-size:13px">Если вы не запрашивали удаление — проигнорируйте это письмо. Код действует 15 минут.</p>
-      </div>
-    `
-  });
-  if (error) throw new Error(error.message);
-}
-
-
 // ── Фильтр матерных ников ─────────────────────────────────────
 const BAD_NICK_WORDS = [
   'хуй','хуе','хер','пизд','бляд','блять','ебал','ебан','еблан',
@@ -333,7 +242,10 @@ class RateLimiter {
 
 const limiterGeneral   = new RateLimiter(60_000,  10000);
 
-const limiterAuth      = new RateLimiter(60_000,    1000);
+// Брутфорс (issue H2): было 1000/мин на IP (~17 паролей/сек). В связке с
+// проверкой loginFailStreak в /api/login — 20/мин достаточно для людей,
+// но делает онлайн-перебор паролей бессмысленным.
+const limiterAuth      = new RateLimiter(60_000,    20);
 
 const limiterStrict    = new RateLimiter(60_000,    900);
 
@@ -433,7 +345,6 @@ function rowToUser(row) {
     bio:              row.bio         || '',
     fshrRating:       row.fshr_rating != null ? row.fshr_rating : null,
     fideRating:       row.fide_rating != null ? row.fide_rating : null,
-    twoFactorEnabled: row.two_factor_enabled || false,
     vipUntil:         row.vip_until != null ? Number(row.vip_until) : null,
     badges:           Array.isArray(row.badges) ? row.badges : [],
   };
@@ -446,8 +357,9 @@ function rowToUser(row) {
 // isVip() везде начинает возвращать false сам по себе.
 function isVip(u) { return !!(u && u.vipUntil && u.vipUntil > Date.now()); }
 
-// Выдавать/снимать значок могут только эти два аккаунта (см. запрос владельца).
-function isVipGranter(username) { return ['chesshome', 'marina64'].includes((username || '').toLowerCase()); }
+// Выдавать/снимать VIP-значок могут сайт-админы (роль 'admin' в БД или
+// legacy-ники bootstrap — см. isSiteAdmin).
+function isVipGranter(username) { return isSiteAdmin(username); }
 
 
 // ── Значки в профиле (сезоны и т.п.) ─────────────────────────
@@ -478,23 +390,25 @@ async function getUser(usernameLow) {
 
 
 async function saveUser(u) {
-  cacheUser(u);
+  // Рассинхронизация (БАГ исправлен): раньше cacheUser(u) вызывался ДО записи в БД —
+  // при ошибке запроса кэш оставался с новыми данными, а БД со старыми, вплоть
+  // до рестарта сервера. Теперь кэш обновляется только после успешной записи.
   await db(`
     INSERT INTO users (id, username, username_low, email, password_hash, rating,
       games_played, wins, losses, draws, avatar, role, banned, ban_reason,
       created_at, created_from_ip, created_device_id, emoji, bio, fshr_rating, fide_rating,
-      two_factor_enabled, vip_until, shadow_banned, shadow_ban_reason, badges)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+      vip_until, shadow_banned, shadow_ban_reason, badges)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
     ON CONFLICT (id) DO UPDATE SET
       rating=$6, games_played=$7, wins=$8, losses=$9, draws=$10,
       avatar=$11, role=$12, banned=$13, ban_reason=$14, emoji=$18,
-      bio=$19, fshr_rating=$20, fide_rating=$21, two_factor_enabled=$22, vip_until=$23,
-      shadow_banned=$24, shadow_ban_reason=$25, badges=$26
+      bio=$19, fshr_rating=$20, fide_rating=$21, vip_until=$22,
+      shadow_banned=$23, shadow_ban_reason=$24, badges=$25
   `, [u.id, u.username, u.username.toLowerCase(), u.email || null,
       u.passwordHash, u.rating, u.gamesPlayed, u.wins, u.losses, u.draws,
       u.avatar || null, u.role || 'user', u.banned || false, u.banReason || null,
       u.createdAt, u.createdFromIP || null, u.createdDeviceId || null, u.emoji || '',
-      u.bio || '', u.fshrRating ?? null, u.fideRating ?? null, u.twoFactorEnabled || false,
+      u.bio || '', u.fshrRating ?? null, u.fideRating ?? null,
       u.vipUntil ?? null, u.shadowBanned || false, u.shadowBanReason || null,
       JSON.stringify(u.badges || [])]);
 }
@@ -685,8 +599,17 @@ async function deleteClubChatMsgsByUser(clubId, usernameLow) {
   } catch (e) { console.error('[deleteClubChatMsgsByUser] error:', e.message); }
 }
 
+// Сайт-админ: источник истины — роль 'admin' в БД (users.role). Она:
+//  1) подтверждается на старте для legacy-ников bootstrap (см. main()),
+//  2) выдаётся/снимается через POST /api/admin/role (issue #27).
+// Legacy-ники ['chesshome','marina64'] — fallback на холодный старт,
+// пока пользователь ещё не загружен в usersCache.
 function isSiteAdmin(username) {
-  return username && ['chesshome','marina64'].includes(username.toLowerCase());
+  if (!username) return false;
+  const low = String(username).toLowerCase();
+  const u = usersCache.get(low);
+  if (u) return u.role === 'admin';
+  return ['chesshome', 'marina64'].includes(low);
 }
 
 function isClubModerator(club, username) {
@@ -1021,17 +944,37 @@ async function loadNewsAuthors() {
 const server = http.createServer(app);
 
 const io     = new Server(server, {
-  cors: { origin: '*', methods: ['GET','POST','DELETE','PATCH'] },
+  // Безопасность (issue M6): раньше origin: '*' — любой сайт мог подключать
+  // сокет от имени посетителя и свободно читать API. При самом запросе сокет
+  // не отправляет cookies сторонним origin (sameSite=lax), но открытый
+  // '*' всё равно расширяет поверхность. Разрешаем только собственный домен.
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin || origin === SITE_URL) return cb(null, true);
+      return cb(null, false);
+    },
+    methods: ['GET','POST','DELETE','PATCH'],
+    credentials: true,
+  },
   // perMessageDeflate жмёт каждый пакет на CPU отправителя и получателя.
   // На 1 ядре с частыми событиями (тиканье часов раз в секунду и т.п.)
   // это ощутимая CPU-нагрузка ради экономии небольшого трафика — отключаем.
   perMessageDeflate: false,
+  // Безопасность (issue M9): дефолтный лимит полезной нагрузки 1MB на
+  // сообщение при щедрых rate-limit'ах — вектор на исчерпание памяти/CPU.
+  // Легитимные события (ходы, чат, вызовы) — сотни байт, 64KB с запасом.
+  maxHttpBufferSize: 64 * 1024,
 });
 
 
 const PORT       = process.env.PORT || 10000;
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Базовый URL сайта: используется для whitelist CORS/Socket.IO origin.
+// (Раньше переменная использовалась только донатами ЮKassa — теперь это общая
+// конфигурация сайта; в .env её указывать не обязательно.)
+const SITE_URL   = process.env.SITE_URL || 'https://chesshome.pro';
 
 const RESERVED   = ['chesshome', 'admin', 'moderator', 'system', 'система'];
 
@@ -1099,15 +1042,10 @@ function ipBanMiddleware(req, res, next) {
       return res.status(403).json({ error: 'Это устройство заблокировано. Создание новых аккаунтов запрещено.' });
   }
 
-  const token = getAuthToken(req);
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      getUser(decoded.username.toLowerCase()).then(user => {
-        if (user && user.banned) { }
-      }).catch(() => {});
-    } catch (e) {}
-  }
+  // Мёртвый код удалён: раньше здесь JWT верифицировался, юзер грузился из БД
+  // (ход в кэш/БД на КАЖДЫЙ запрос!), а тело проверки было пустым
+  // if (user && user.banned) { } — ноускоп. Бан проверяется глобально
+  // в authMiddleware на защищённых роутах (getUser + banned).
   next();
 }
 
@@ -1189,12 +1127,39 @@ function rateLimit(limiter, message = 'Слишком много запросо�
 app.use((req, res, next) => {
   res.set('X-Frame-Options', 'SAMEORIGIN');
   res.set('X-Content-Type-Options', 'nosniff');
-  res.set('X-XSS-Protection', '1; mode=block');
   res.set('Referrer-Policy', 'same-origin');
+  // CSP (issue M10): раньше заголовка не было вообще, при этом значительная часть
+  // фронтенда собирается через innerHTML — CSP служит последней линией обороны
+  // от XSS (см. фиксы валидации promotion/gameId). Источники подобраны по факту:
+  // jsdelivr (marked/purify), Google Fonts, Яндекс.Метрика; инлайн-скрипты —
+  // 'unsafe-inline', пока страницы рендерят server-side <script> с данными партии.
+  res.set('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://mc.yandex.ru; " +
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; " +
+    "font-src 'self' data: https://fonts.gstatic.com; " +
+    "img-src 'self' data: blob: https:; " +
+    "connect-src 'self' wss: ws: https://mc.yandex.ru; " +
+    "worker-src 'self' blob:; " +
+    "frame-ancestors 'self'; " +
+    "base-uri 'self'; form-action 'self'");
+  res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   next();
 });
 
-app.use(cors());
+// CORS (issue M6): раньше app.use(cors()) открывал API всем origin. Сайтовый
+// фронтенд live на том же домене (кулбы за same-origin), поэтому достаточно
+// разрешить собственный домен (+ не-браузерные клиенты без Origin). Кросс-
+// доменные запросы всё равно не несли cookies (sameSite=lax) — теперь и читаемость
+// API извне закрыта.
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || origin === SITE_URL) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true,
+}));
 
 app.use(compression());
 
@@ -1290,29 +1255,13 @@ const LICHESS_TOKEN = process.env.LICHESS_API_TOKEN;
 
 
 
-// ── ЮKassa Донаты ─────────────────────────────────────────────
-const YUKASSA_SHOP_ID      = process.env.YUKASSA_SHOP_ID;
-
-const YUKASSA_SECRET_KEY   = process.env.YUKASSA_SECRET_KEY;
-
-const SITE_URL             = process.env.SITE_URL || 'https://chesshome.pro';
-
-
-// Таблица платежей (создаётся в main)
-async function initDonateTable() {
-  await db(`
-    CREATE TABLE IF NOT EXISTS donations (
-      id            TEXT PRIMARY KEY,
-      username      TEXT,
-      amount        NUMERIC(10,2) NOT NULL,
-      currency      TEXT NOT NULL DEFAULT 'RUB',
-      message       TEXT,
-      status        TEXT NOT NULL DEFAULT 'pending',
-      payment_id    TEXT,
-      created_at    BIGINT NOT NULL
-    )
-  `);
-}
+// ── ЮKassa — мёртвый код УДАЛЁН ──────────────────────────────
+// Платежи вырезаны из продукта (хедер ведёт на CloudTips, donate.html не
+// существует, фронтенд не вызывает ни один /api/donate/* роут). Удалены:
+// константы YUKASSA_SHOP_ID/YUKASSA_SECRET_KEY, таблица donations
+// (initDonateTable) и все роуты /api/donate/* в routes.js.
+// SITE_URL теперь объявлен вверху файла рядом с PORT/JWT_SECRET — он
+// используется whitelist'ом CORS/Socket.IO.
 
 
 // Раньше не было выделенного лимита на /login — только общий limiterGeneral
@@ -1555,17 +1504,7 @@ function blogAuthMiddleware(req, res, next) {
   catch { return res.status(401).json({ error: 'Неверный токен' }); }
 }
 
-function blogAdminMiddleware(req, res, next) {
-  const auth = getAuthToken(req);
-  if (!auth) return res.status(401).json({ error: 'Не авторизован' });
-  try { req.blogUser = jwt.verify(auth, JWT_SECRET); }
-  catch { return res.status(401).json({ error: 'Неверный токен' }); }
-  if (!isBlogAdmin(req.blogUser.username)) return res.status(403).json({ error: 'Только администратор' });
-  next();
-}
-
-
-function isBlogAdmin(username) { return username && ['chesshome','marina64'].includes(username.toLowerCase()); }
+function isBlogAdmin(username) { return isSiteAdmin(username); }
 
 
 // Заголовок и текст статьи блога иногда приезжают в base64 (поле encoding:'b64') —
@@ -1605,6 +1544,15 @@ db(`CREATE INDEX IF NOT EXISTS idx_blog_comments_post ON blog_comments(post_id, 
 
 db(`CREATE TABLE IF NOT EXISTS blog_comment_reactions (comment_id TEXT NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL, PRIMARY KEY (comment_id, user_id))`).catch(e => console.error('[Blog] blog_comment_reactions init:', e.message));
 
+// Реакции на ответах форума (issue #45)
+db(`CREATE TABLE IF NOT EXISTS forum_reply_reactions (reply_id TEXT NOT NULL, username_low TEXT NOT NULL, emoji TEXT NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (reply_id, username_low))`).catch(e => console.error('[Forum] forum_reply_reactions init:', e.message));
+db(`CREATE INDEX IF NOT EXISTS idx_forum_reply_reactions_reply ON forum_reply_reactions(reply_id)`).catch(() => {});
+
+// Ответы на личные сообщения (issue #56): колонка reply_to_id в dm_messages.
+// Таблица dm_messages создаётся прод-миграцией, поэтому при её отсутствии
+// ALTER молча пропускается (фича ЛС при этом всё равно недоступна).
+db(`ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS reply_to_id TEXT`).catch(() => {});
+
 db(`CREATE TABLE IF NOT EXISTS blog_comment_bans (post_id TEXT NOT NULL, username TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'mute', until BIGINT, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, username))`).catch(e => console.error('[Blog] blog_comment_bans init:', e.message));
 
 db(`CREATE TABLE IF NOT EXISTS blog_global_comment_bans (username TEXT PRIMARY KEY, type TEXT NOT NULL DEFAULT 'mute', until BIGINT, created_at BIGINT NOT NULL)`).catch(e => console.error('[Blog] blog_global_comment_bans init:', e.message));
@@ -1636,7 +1584,7 @@ async function handleDeleteBlogPost(req, res) {
 // ══════════════════════════════════════════════════════════════
 
 function isBlogCommentAdmin(username) {
-  return username && ['chesshome','marina64'].includes(username.toLowerCase());
+  return isSiteAdmin(username);
 }
 
 
@@ -1796,14 +1744,37 @@ try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) { console.erro
 const uploadStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
-    const ext = (path.extname(file.originalname) || '').toLowerCase().replace(/[^a-z0-9.]/g,'').slice(0,10);
-    cb(null, `${Date.now()}_${uuidv4()}${ext}`);
+    // Безопасность (issue H3): расширение НЕ берём из оригинального имени файла
+    // (клиентский контроль) — выводим его из проверенного mimetype. Так
+    // shell.html с mimetype=image/jpeg не сохранится как .html: получит .jpg.
+    const extByMime = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
+    cb(null, `${Date.now()}_${uuidv4()}${extByMime[file.mimetype] || '.bin'}`);
   },
 });
 
+// Magic bytes реальных изображений — проверка содержимого, а не декларации клиента.
+const IMAGE_MAGIC = [
+  { mime: 'image/jpeg', bytes: [0xFF, 0xD8, 0xFF] },
+  { mime: 'image/png',  bytes: [0x89, 0x50, 0x4E, 0x47] },
+  { mime: 'image/gif',  bytes: [0x47, 0x49, 0x46, 0x38] },
+  { mime: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF....WEBP — первые 4 байта + проверка 8-11
+];
+function sniffImageMime(buf) {
+  for (const sig of IMAGE_MAGIC) {
+    if (sig.bytes.every((b, i) => buf[i] === b)) {
+      if (sig.mime === 'image/webp') {
+        // Доп. проверка строки WEBP на смещении 8
+        return buf.length >= 12 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50 ? sig.mime : null;
+      }
+      return sig.mime;
+    }
+  }
+  return null;
+}
+
 const uploadImage = multer({
   storage: uploadStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 10 },
   fileFilter: (req, file, cb) => {
     if (!/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) return cb(new Error('Разрешены только изображения (jpeg, png, gif, webp)'));
     cb(null, true);
@@ -1913,6 +1884,76 @@ async function initPuzzleTables() {
 //  результат сюда через POST /api/durka/add-tournament с секретным
 //  ключом в заголовке x-durka-key (см. DURKA_ADMIN_KEY в .env).
 //  Обычная сессия/логин тут не нужен — скрипт работает с сервера напрямую.
+
+// ── Квесты (Сезон 2) ─────────────────────────────────────────
+// Таблицы квестов раньше вообще не создавались — /api/quests/* падали
+// с 500 (после чего ещё и getCurrentSeasonDay была не определена).
+// Здесь: схема + сид сезонных квестов + вычисление текущего дня сезона.
+const SEASON_NUMBER = 2;
+// Старт сезона задаётся переменной окружения SEASON_START (ISO-дата);
+// по умолчанию — 1 сентября 2026 UTC.
+const SEASON_START = process.env.SEASON_START
+  ? new Date(process.env.SEASON_START).getTime()
+  : Date.UTC(2026, 8, 1);
+
+function getCurrentSeasonDay() {
+  const day = Math.floor((Date.now() - SEASON_START) / 86_400_000) + 1;
+  return Math.max(1, day);
+}
+
+async function initQuestTables() {
+  try {
+    await db(`
+      CREATE TABLE IF NOT EXISTS quests (
+        id             TEXT PRIMARY KEY,
+        day            INT  NOT NULL,
+        title          TEXT NOT NULL,
+        description    TEXT,
+        reward_crystals INT NOT NULL DEFAULT 10,
+        is_mega        BOOLEAN NOT NULL DEFAULT FALSE,
+        type           TEXT NOT NULL DEFAULT 'manual'
+      )
+    `);
+    await db(`
+      CREATE TABLE IF NOT EXISTS user_quests (
+        user_id      TEXT NOT NULL,
+        quest_id     TEXT NOT NULL,
+        completed_at BIGINT NOT NULL,
+        progress     INT NOT NULL DEFAULT 0,
+        target       INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, quest_id)
+      )
+    `);
+    await db(`CREATE INDEX IF NOT EXISTS idx_user_quests_user ON user_quests(user_id)`);
+    await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_crystals BIGINT NOT NULL DEFAULT 0`);
+    await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_crystals_updated_at BIGINT NOT NULL DEFAULT 0`);
+    // Сид квестов: по одному на каждый из 30 дней сезона. Каждый 7-й день —
+    // мега-квест с увеличенной наградой.
+    const questsSeed = [];
+    for (let day = 1; day <= 30; day++) {
+      const isMega = day % 7 === 0;
+      questsSeed.push([
+        `s${SEASON_NUMBER}d${day}`,
+        day,
+        isMega ? `Мега-квест дня ${day}` : `Квест дня ${day}`,
+        isMega
+          ? 'Особое задание дня — повышенная награда в кристаллах'
+          : 'Ежедневное задание сезона — выполняй и получай кристаллы',
+        isMega ? 50 : 10 + day,
+        isMega,
+        'confirm',
+      ]);
+    }
+    for (const [id, day, title, description, reward, isMega, type] of questsSeed) {
+      await db(
+        `INSERT INTO quests (id, day, title, description, reward_crystals, is_mega, type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
+        [id, day, title, description, reward, isMega, type]
+      );
+    }
+  } catch (e) { console.error('[Quests] init error:', e.message); }
+}
+
 
 async function initDurkaTables() {
   try {
@@ -2029,7 +2070,11 @@ async function authMiddleware(req, res, next) {
   req.user = decoded;
   try {
     const u = await getUser(String(decoded.username || '').toLowerCase());
-    if (u && u.banned) {
+    // БАГ (исправлен): при удалённом/несуществующем аккаунте (!u) запрос
+    // проходил дальше как «авторизованный» — JWT жил до 7 дней после удаления.
+    // Теперь — явный 401.
+    if (!u) return res.status(401).json({ error: 'Аккаунт не найден' });
+    if (u.banned) {
       const p = String(req.originalUrl || req.url || '').split('?')[0];
       if (!BANNED_ALLOWED_PATHS.some(rx => rx.test(p))) {
         return res.status(403).json({ error: 'Аккаунт заблокирован' + (u.banReason ? ': ' + u.banReason : '') });
@@ -2052,8 +2097,9 @@ async function requireAdmin(req, res, cb) {
 }
 
 
-// Отдельная проверка для VIP-значка: не завязана на общую роль admin,
-// пускает только chesshome и Marina64 (см. isVipGranter выше).
+// VIP-проверка завязана на сайт-админов (см. isVipGranter выше):
+// роль 'admin' в БД либо legacy-ники bootstrap. Роль выдаётся через
+// POST /api/admin/role (issue #27).
 async function requireVipGranter(req, res, cb) {
   try {
     const me = await getUser(req.user.username.toLowerCase());
@@ -2170,6 +2216,10 @@ function hasFullMove(game) {
 
 
 async function endGameAuthoritative(gameId, game, result, reason) {
+  // Защита от повторного входа: гонка тика часов (раз в секунду) и ручного
+  // game_over/resign одного из игроков могла завершить партию дважды.
+  if (game._finishing) return;
+  game._finishing = true;
   if (!activeGames.has(gameId) && !tournamentGames.has(gameId)) return; // уже завершена
   activeGames.delete(gameId);
   tournamentGames.delete(gameId);
@@ -2202,11 +2252,27 @@ setInterval(() => {
 function findSocketByUsername(username) {
   // Было: линейный перебор всей карты sessions на каждый вызов (O(n)).
   // Стало: прямой доступ по индексу usernameToSocketId (O(1)).
-  const id = usernameToSocketId.get(username.toLowerCase());
-  if (!id) return null;
-  const sock = io.sockets.sockets.get(id);
-  if (!sock) { usernameToSocketId.delete(username.toLowerCase()); return null; }
-  return sock;
+  //
+  // Multi-socket: у юзера может быть несколько легитимных сокетов одновременно
+  // (основной app.js + DM-сокет header.js). Возвращаем fanout-эмиттер: emit()
+  // доставляет событие ВСЕМ сокетам юзера, disconnect() отключает все. Все
+  // существующие вызовы вида s?.emit(...) / if (sock) sock.emit(...) работают
+  // без изменений — но больше не зависят от того, какой из сокетов юзера
+  // «победил» в гонке регистрации (раньше события молча терялись — issue #52).
+  const low = String(username).toLowerCase();
+  const ids = usernameToSocketId.get(low);
+  if (!ids || ids.size === 0) return null;
+  const sockets = [];
+  for (const id of ids) {
+    const s = io.sockets.sockets.get(id);
+    if (s) sockets.push(s);
+  }
+  if (!sockets.length) { usernameToSocketId.delete(low); return null; }
+  return {
+    emit(event, ...args) { for (const s of sockets) s.emit(event, ...args); },
+    disconnect()         { for (const s of sockets) s.disconnect(true); },
+    get size()           { return sockets.length; },
+  };
 }
 
 
@@ -2215,9 +2281,15 @@ function findSocketByUsername(username) {
 // вынесено в одну функцию, чтобы гарантировать: эти сокет-события
 // НИКОГДА не попадают обычным пользователям (утечка в Network).
 async function emitToAdmins(event, payload) {
+  // Multi-socket: у одного админа может быть несколько сокетов/сессий —
+  // дедуплицируем по нику, чтобы каждый админ получил событие один раз.
+  const seen = new Set();
   for (const [, sess] of sessions.entries()) {
-    const u = usersCache.get(sess.username.toLowerCase());
+    const low = sess.username.toLowerCase();
+    if (seen.has(low)) continue;
+    const u = usersCache.get(low);
     if (u?.role !== 'admin') continue;
+    seen.add(low);
     const sock = findSocketByUsername(sess.username);
     if (sock) sock.emit(event, payload);
   }
@@ -2269,21 +2341,56 @@ async function calcNewRatings(wRating, bRating, result) {
 
 
 async function updateStats(white, black, result, rated = true) {
-  const w = await getUser(white.toLowerCase());
-  const b = await getUser(black.toLowerCase());
-  if (!w || !b) return;
-  w.gamesPlayed++; b.gamesPlayed++;
-  if (result === 'white')      { w.wins++; b.losses++; }
-  else if (result === 'black') { b.wins++; w.losses++; }
-  else                         { w.draws++; b.draws++; }
-  // Товарищеская партия: счётчики побед/поражений/партий обновляются как
-  // обычно, но сам рейтинг (Elo) не пересчитывается.
-  if (rated) {
-    const { white: newW, black: newB } = await calcNewRatings(w.rating, b.rating, result);
-    w.rating = Math.max(100, newW);
-    b.rating = Math.max(100, newB);
+  // Гонка данных (БАГ исправлен): раньше статистика обновлялась read-modify-write
+  // по объектам из кэша + saveUser (whole-row upsert). Два одновременных финала
+  // партий с общим игроком теряли инкременты и/или считали Elo от промежуточных
+  // значений. Теперь: транзакция + SELECT ... FOR UPDATE блокирует строки обоих
+  // игроков, инкременты выполняются одним атомарным UPDATE, и кэш синхронизируется
+  // из фактических значений БД (шаблон — как в квестах /api/quests/complete).
+  const wLow = white.toLowerCase(), bLow = black.toLowerCase();
+  if (wLow === bLow) return; // сам с собой — не бывает, но защита от деления на ноль в Elo
+  try {
+    const finalW = await withTransaction(async (client) => {
+      const r = await client.query(
+        `SELECT id, username, username_low, rating, games_played, wins, losses, draws
+           FROM users WHERE username_low IN ($1, $2) ORDER BY username_low FOR UPDATE`,
+        [wLow, bLow]
+      );
+      if (r.rows.length < 2) return null;
+      const rowW = r.rows.find(x => x.username_low === wLow);
+      const rowB = r.rows.find(x => x.username_low === bLow);
+      if (!rowW || !rowB) return null;
+      let newRatingW = rowW.rating, newRatingB = rowB.rating;
+      if (rated) {
+        const nr = await calcNewRatings(rowW.rating, rowB.rating, result);
+        newRatingW = Math.max(100, nr.white);
+        newRatingB = Math.max(100, nr.black);
+      }
+      const incW = result === 'white' ? 'games_played = games_played + 1, wins = wins + 1' : result === 'black' ? 'games_played = games_played + 1, losses = losses + 1' : 'games_played = games_played + 1, draws = draws + 1';
+      const incB = result === 'white' ? 'games_played = games_played + 1, losses = losses + 1' : result === 'black' ? 'games_played = games_played + 1, wins = wins + 1' : 'games_played = games_played + 1, draws = draws + 1';
+      const upd = await client.query(
+        `UPDATE users SET ${rated ? 'rating = $2,' : ''} ${incW}
+           WHERE username_low = $1 RETURNING rating, games_played, wins, losses, draws`,
+        rated ? [wLow, newRatingW] : [wLow]
+      );
+      await client.query(
+        `UPDATE users SET ${rated ? 'rating = $2,' : ''} ${incB}
+           WHERE username_low = $1 RETURNING rating, games_played, wins, losses, draws`,
+        rated ? [bLow, newRatingB] : [bLow]
+      );
+      return { wRow: upd.rows[0], ratingW: newRatingW, ratingB: newRatingB };
+    });
+    // Синхронизируем кэш из фактических значений БД (а не из локальных объектов)
+    if (finalW && finalW.wRow) {
+      const w = await getUser(wLow);
+      const b = await getUser(bLow);
+      if (w) { Object.assign(w, { rating: finalW.wRow.rating, gamesPlayed: finalW.wRow.games_played, wins: finalW.wRow.wins, losses: finalW.wRow.losses, draws: finalW.wRow.draws }); cacheUser(w); }
+      if (b) { const r2 = await db('SELECT rating, games_played, wins, losses, draws FROM users WHERE username_low = $1', [bLow]);
+        if (r2.rows[0]) Object.assign(b, { rating: r2.rows[0].rating, gamesPlayed: r2.rows[0].games_played, wins: r2.rows[0].wins, losses: r2.rows[0].losses, draws: r2.rows[0].draws }); cacheUser(b); }
+    }
+  } catch (e) {
+    console.error('[updateStats]', e.message);
   }
-  await saveUser(w); await saveUser(b);
 }
 
 
@@ -2416,6 +2523,11 @@ function startTournamentGame(tournament, p1, p2) {
 
 
 async function finishTournamentGame(tournament, game, result, reason) {
+  // Защита от двойного завершения одной и той же турнирной партии (гонка
+  // resign/timeout/game_over): без флага параллельные финалы давали двойные
+  // очки, дубли в tournament.games и сломанные счётчики participants.
+  if (game._tournamentFinished) return;
+  game._tournamentFinished = true;
   const now = Date.now();
   const wp = tournament.participants.find(p => p.username === game.white);
   const bp = tournament.participants.find(p => p.username === game.black);
@@ -2582,27 +2694,30 @@ setInterval(async () => {
         if (game.tournamentId !== t.id) continue;
         if (game.firstMoveDeadline && now > game.firstMoveDeadline) {
           if (game.moves.length === 0) {
-            // Белые не сделали первый ход — поражение белых
+            // Белые не сделали первый ход — поражение белых.
+            // Гонка (БАГ исправлен): из карт удаляем СИНХРОННО ДО await — иначе
+            // параллельный resign/timeout успевает завершить партию второй раз
+            // (двойные очки турнира/дубли в tournament.games).
             console.log(`[Tournament] Первый ход просрочен: ${game.white} (белые) в игре ${gameId}`);
+            tournamentGames.delete(gameId);
+            activeGames.delete(gameId);
             const ws = findSocketByUsername(game.white);
             const bs = findSocketByUsername(game.black);
             const payload = { gameId, result: 'black', reason: 'timeout_firstmove' };
             if (ws) ws.emit('game_ended', payload);
             if (bs) bs.emit('game_ended', payload);
             await finishTournamentGame(t, game, 'black', 'timeout_firstmove');
-            tournamentGames.delete(gameId);
-            activeGames.delete(gameId);
           } else if (game.moves.length === 1) {
             // Белые сходили, чёрные не сделали свой первый ход — поражение чёрных
             console.log(`[Tournament] Первый ход просрочен: ${game.black} (чёрные) в игре ${gameId}`);
+            tournamentGames.delete(gameId);
+            activeGames.delete(gameId);
             const ws = findSocketByUsername(game.white);
             const bs = findSocketByUsername(game.black);
             const payload = { gameId, result: 'white', reason: 'timeout_firstmove' };
             if (ws) ws.emit('game_ended', payload);
             if (bs) bs.emit('game_ended', payload);
             await finishTournamentGame(t, game, 'white', 'timeout_firstmove');
-            tournamentGames.delete(gameId);
-            activeGames.delete(gameId);
           }
         }
       }
@@ -2628,150 +2743,215 @@ setInterval(async () => {
 
 
 const serverChess = (() => {
-  const EMPTY = null;
-  const START_POS = [
-    ['R','w'],['N','w'],['B','w'],['Q','w'],['K','w'],['B','w'],['N','w'],['R','w'],
-    ['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],['P','w'],
-    ...Array(32).fill(EMPTY),
-    ['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],['P','b'],
-    ['R','b'],['N','b'],['B','b'],['Q','b'],['K','b'],['B','b'],['N','b'],['R','b'],
-  ];
-  function startBoard() { return { squares: [...START_POS], turn: 'w', castling: { wK: true, wQ: true, bK: true, bQ: true }, epSquare: -1 }; }
-  function cloneBoard(b) { return { squares: [...b.squares], turn: b.turn, castling: { ...b.castling }, epSquare: b.epSquare }; }
-  function file(sq) { return sq % 8; } function rank(sq) { return Math.floor(sq / 8); } function sq_(r, f) { return r * 8 + f; }
-  function isEnemy(piece, color) { return piece && piece[1] !== color; }
-  function isEmpty(squares, s) { return squares[s] === EMPTY; }
-  function addIfValid(moves, squares, color, from, to) { if (to < 0 || to > 63) return; if (squares[to] && squares[to][1] === color) return; moves.push({ from, to }); }
-  function slideMoves(moves, squares, color, from, dirs) { for (const [dr, df] of dirs) { let r = rank(from) + dr, f = file(from) + df; while (r >= 0 && r < 8 && f >= 0 && f < 8) { const to = sq_(r, f); if (squares[to]) { if (squares[to][1] !== color) moves.push({ from, to }); break; } moves.push({ from, to }); r += dr; f += df; } } }
-  function pseudoLegalMoves(board, fromSq) {
-    const { squares, turn, epSquare } = board;
-    const piece = squares[fromSq]; if (!piece || piece[1] !== turn) return [];
-    const [type, color] = piece; const moves = [];
-    if (type === 'P') {
-      const dir = color === 'w' ? 1 : -1, startRank = color === 'w' ? 1 : 6;
-      const r = rank(fromSq), f = file(fromSq);
-      const fwd = sq_(r + dir, f);
-      if (fwd >= 0 && fwd < 64 && isEmpty(squares, fwd)) { moves.push({ from: fromSq, to: fwd }); if (r === startRank) { const fwd2 = sq_(r + 2 * dir, f); if (isEmpty(squares, fwd2)) moves.push({ from: fromSq, to: fwd2 }); } }
-      for (const df of [-1, 1]) { const nf = f + df; if (nf < 0 || nf > 7) continue; const cap = sq_(r + dir, nf); if (cap >= 0 && cap < 64) { if (isEnemy(squares[cap], color)) moves.push({ from: fromSq, to: cap }); if (cap === epSquare) moves.push({ from: fromSq, to: cap, ep: true }); } }
-    } else if (type === 'N') { for (const [dr, df] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) { const nr = rank(fromSq) + dr, nf = file(fromSq) + df; if (nr >= 0 && nr < 8 && nf >= 0 && nf < 8) addIfValid(moves, squares, color, fromSq, sq_(nr, nf)); }
-    } else if (type === 'B') { slideMoves(moves, squares, color, fromSq, [[-1,-1],[-1,1],[1,-1],[1,1]]);
-    } else if (type === 'R') { slideMoves(moves, squares, color, fromSq, [[-1,0],[1,0],[0,-1],[0,1]]);
-    } else if (type === 'Q') { slideMoves(moves, squares, color, fromSq, [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]);
-    } else if (type === 'K') {
-      for (const [dr, df] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) { const nr = rank(fromSq) + dr, nf = file(fromSq) + df; if (nr >= 0 && nr < 8 && nf >= 0 && nf < 8) addIfValid(moves, squares, color, fromSq, sq_(nr, nf)); }
-      if (color === 'w' && fromSq === 4) { if (board.castling.wK && isEmpty(squares,5) && isEmpty(squares,6) && squares[7]?.[0]==='R') moves.push({ from: fromSq, to: 6, castle: 'K' }); if (board.castling.wQ && isEmpty(squares,1) && isEmpty(squares,2) && isEmpty(squares,3) && squares[0]?.[0]==='R') moves.push({ from: fromSq, to: 2, castle: 'Q' }); }
-      if (color === 'b' && fromSq === 60) { if (board.castling.bK && isEmpty(squares,61) && isEmpty(squares,62) && squares[63]?.[0]==='R') moves.push({ from: fromSq, to: 62, castle: 'K' }); if (board.castling.bQ && isEmpty(squares,57) && isEmpty(squares,58) && isEmpty(squares,59) && squares[56]?.[0]==='R') moves.push({ from: fromSq, to: 58, castle: 'Q' }); }
-    }
-    return moves;
+  // ── Шахматные правила НА chess.js ─────────────────────────────
+  // Раньше здесь был самописный движок (~150 строк: генерация ходов,
+  // шахи, рокировки, взятие на проходе). В нём был баг "призрачной
+  // ладьи": при взятии ладьи на её начальном поле право рокировки
+  // не снималось, и рокировка становилась возможной без ладьи.
+  // Теперь ВСЯ логика правил — в библиотеке chess.js, этот модуль
+  // лишь адаптирует её к внутреннему формату партии:
+  //   board   = { squares: Array(64) из null | [ТИП,'w'|'b'],
+  //               turn: 'w'|'b', castling: {wK,wQ,bK,bQ}, epSquare: idx|-1 }
+  //   move    = { from: 0..63, to: 0..63, promotion?: 'q'|'Q', ep?, castle? }
+  const { Chess } = require('chess.js');
+
+  function indexToSquare(idx) {
+    return String.fromCharCode(97 + (idx % 8)) + (Math.floor(idx / 8) + 1);
   }
-  function isSquareAttacked(squares, sq, byColor) {
-    const opp = byColor;
-    for (const df of [-1, 1]) { const pr = rank(sq) + (opp === 'w' ? -1 : 1), pf = file(sq) + df; if (pr >= 0 && pr < 8 && pf >= 0 && pf < 8) { const p = squares[sq_(pr, pf)]; if (p && p[0] === 'P' && p[1] === opp) return true; } }
-    for (const [dr, df] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) { const r = rank(sq) + dr, f = file(sq) + df; if (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p && p[0] === 'N' && p[1] === opp) return true; } }
-    for (const [dr, df] of [[-1,0],[1,0],[0,-1],[0,1]]) { let r = rank(sq) + dr, f = file(sq) + df; while (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p) { if (p[1] === opp && (p[0] === 'R' || p[0] === 'Q')) return true; break; } r += dr; f += df; } }
-    for (const [dr, df] of [[-1,-1],[-1,1],[1,-1],[1,1]]) { let r = rank(sq) + dr, f = file(sq) + df; while (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p) { if (p[1] === opp && (p[0] === 'B' || p[0] === 'Q')) return true; break; } r += dr; f += df; } }
-    for (const [dr, df] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) { const r = rank(sq) + dr, f = file(sq) + df; if (r >= 0 && r < 8 && f >= 0 && f < 8) { const p = squares[sq_(r, f)]; if (p && p[0] === 'K' && p[1] === opp) return true; } }
-    return false;
+  function squareToIndex(sq) {
+    return (sq.charCodeAt(1) - 49) * 8 + (sq.charCodeAt(0) - 97);
   }
-  function findKing(squares, color) { for (let i = 0; i < 64; i++) { if (squares[i] && squares[i][0] === 'K' && squares[i][1] === color) return i; } return -1; }
-  function isInCheck(squares, color) { const kp = findKing(squares, color); if (kp < 0) return true; return isSquareAttacked(squares, kp, color === 'w' ? 'b' : 'w'); }
-  function applyMove(board, move) {
-    const b = cloneBoard(board); const piece = b.squares[move.from]; const [type, color] = piece; const opp = color === 'w' ? 'b' : 'w';
-    b.squares[move.to] = piece; b.squares[move.from] = EMPTY; b.epSquare = -1;
-    if (type === 'P' && move.ep) { b.squares[move.to + (color === 'w' ? -8 : 8)] = EMPTY; }
-    if (type === 'P' && Math.abs(move.to - move.from) === 16) { b.epSquare = (move.from + move.to) >> 1; }
-    if (type === 'P') { const promRank = color === 'w' ? 7 : 0; if (rank(move.to) === promRank) b.squares[move.to] = [move.promotion || 'Q', color]; }
-    if (type === 'K') { if (color === 'w') { b.castling.wK = false; b.castling.wQ = false; } else { b.castling.bK = false; b.castling.bQ = false; } if (move.castle === 'K') { b.squares[color==='w'?5:61] = b.squares[color==='w'?7:63]; b.squares[color==='w'?7:63] = EMPTY; } else if (move.castle === 'Q') { b.squares[color==='w'?3:59] = b.squares[color==='w'?0:56]; b.squares[color==='w'?0:56] = EMPTY; } }
-    if (type === 'R') { if (move.from===0) b.castling.wQ=false; if (move.from===7) b.castling.wK=false; if (move.from===56) b.castling.bQ=false; if (move.from===63) b.castling.bK=false; }
-    b.turn = opp; return b;
-  }
-  function isLegalMove(board, move) {
-    const piece = board.squares[move.from]; if (!piece || piece[1] !== board.turn) return false;
-    const pseudo = pseudoLegalMoves(board, move.from); const found = pseudo.find(m => m.to === move.to); if (!found) return false;
-    if (found.castle) { const color = piece[1], opp = color === 'w' ? 'b' : 'w', kingFrom = color === 'w' ? 4 : 60, throughSq = found.castle === 'K' ? kingFrom + 1 : kingFrom - 1; if (isInCheck(board.squares, color)) return false; if (isSquareAttacked(board.squares, throughSq, opp)) return false; if (isSquareAttacked(board.squares, move.to, opp)) return false; }
-    const after = applyMove(board, found); return !isInCheck(after.squares, piece[1]);
-  }
-  function rebuildBoard(moves) {
-    let board = startBoard();
-    for (const move of (moves || [])) {
-      try {
-        const pseudo = pseudoLegalMoves(board, move.from);
-        const found = pseudo.find(m => m.to === move.to);
-        if (!found) { console.warn('[serverChess] rebuildBoard: нет хода from', move.from, 'to', move.to); break; }
-        if (found.promotion !== undefined || move.promotion) found.promotion = move.promotion || 'Q';
-        board = applyMove(board, found);
-      } catch(e) { console.warn('[serverChess] rebuildBoard error:', e.message); break; }
-    }
-    return board;
-  }
-  function findMove(board, move) {
-    const pseudo = pseudoLegalMoves(board, move.from);
-    const found = pseudo.find(m => m.to === move.to);
-    if (!found) return move;
-    if (move.promotion) found.promotion = move.promotion;
-    return found;
-  }
-  function hasAnyLegalMove(board, color) {
-    for (let sq = 0; sq < 64; sq++) {
-      const piece = board.squares[sq];
-      if (!piece || piece[1] !== color) continue;
-      const pseudo = pseudoLegalMoves({ ...board, turn: color }, sq);
-      for (const m of pseudo) {
-        if (isLegalMove({ ...board, turn: color }, m)) return true;
+
+  // FEN -> board-объект формата партии
+  function boardFromFen(fen) {
+    const c = new Chess(fen);
+    const parts = fen.trim().split(' ');
+    const rows = c.board(); // 8x8, от 8-го ранга к 1-му
+    const squares = Array(64).fill(null);
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const p = rows[r][f];
+        if (p) squares[(7 - r) * 8 + f] = [p.type.toUpperCase(), p.color];
       }
     }
-    return false;
+    const castling = { wK: false, wQ: false, bK: false, bQ: false };
+    if (parts[2] && parts[2] !== '-') {
+      castling.wK = parts[2].includes('K');
+      castling.wQ = parts[2].includes('Q');
+      castling.bK = parts[2].includes('k');
+      castling.bQ = parts[2].includes('q');
+    }
+    return {
+      squares,
+      turn: c.turn(),
+      castling,
+      epSquare: parts[3] && parts[3] !== '-' ? squareToIndex(parts[3]) : -1,
+      _fen: c.fen(),
+    };
   }
-  function isCheckmate(board) { return isInCheck(board.squares, board.turn) && !hasAnyLegalMove(board, board.turn); }
-  function isStalemate(board) { return !isInCheck(board.squares, board.turn) && !hasAnyLegalMove(board, board.turn); }
 
-  // ── Ничьи по правилам (50 ходов / недостаток материала / троекратное
-  // повторение) — раньше сервер их вообще не проверял, потому что клиент
-  // никогда и не заявлял о них (см. баги 2/3 в board.js). Теперь сервер
-  // умеет перепроверить любую такую заявку по реальной истории ходов,
-  // так же как уже делает для мата/пата — иначе клиент мог бы просто
-  // соврать "ничья по повторению" в любой момент партии.
-  function isInsufficientMaterial(squares) {
-    const pieces = squares.filter(Boolean);
-    if (pieces.length === 2) return true; // K-K
-    if (pieces.length === 3) {
-      const minor = pieces.find(p => p[0] === 'B' || p[0] === 'N');
-      if (minor) return true; // K+B-K or K+N-K
+  // board-объект -> FEN (фолбэк для объектов без _fen)
+  function fenFromBoard(b) {
+    let placement = '';
+    for (let r = 7; r >= 0; r--) {
+      let empty = 0;
+      for (let f = 0; f < 8; f++) {
+        const p = b.squares[r * 8 + f];
+        if (!p) { empty++; continue; }
+        if (empty) { placement += empty; empty = 0; }
+        placement += p[1] === 'w' ? p[0] : p[0].toLowerCase();
+      }
+      if (empty) placement += empty;
+      if (r > 0) placement += '/';
     }
+    let cas = '';
+    if (b.castling) {
+      if (b.castling.wK) cas += 'K';
+      if (b.castling.wQ) cas += 'Q';
+      if (b.castling.bK) cas += 'k';
+      if (b.castling.bQ) cas += 'q';
+    }
+    return placement + ' ' + (b.turn || 'w') + ' ' + (cas || '-') + ' '
+      + (b.epSquare >= 0 ? indexToSquare(b.epSquare) : '-') + ' 0 1';
+  }
+
+  function makeChess(b) {
+    try { return new Chess(b._fen || fenFromBoard(b)); } catch (e) { return null; }
+  }
+
+  function cloneBoard(b) {
+    return { squares: [...b.squares], turn: b.turn, castling: { ...b.castling }, epSquare: b.epSquare, _fen: b._fen };
+  }
+
+  function startBoard() {
+    return boardFromFen(new Chess().fen());
+  }
+
+  // Поиск verbose-хода chess.js по формату партии
+  function matchVerboseMove(c, b, move) {
+    const fromSq = indexToSquare(move.from);
+    const toSq = indexToSquare(move.to);
+    const all = c.moves({ square: fromSq, verbose: true }).filter(m => m.to === toSq);
+    if (!all.length) return null;
+    if (move.promotion) {
+      const promo = String(move.promotion).toLowerCase();
+      return all.find(m => m.promotion === promo) || null;
+    }
+    // Превращение без указания фигуры — ферзь (как и раньше)
+    return all.find(m => m.promotion === 'q') || all[0];
+  }
+
+  function verboseToGameMove(v) {
+    return {
+      from: squareToIndex(v.from),
+      to: squareToIndex(v.to),
+      promotion: v.promotion ? v.promotion.toUpperCase() : undefined,
+      castle: v.flags.includes('k') ? 'K' : v.flags.includes('q') ? 'Q' : undefined,
+      ep: v.flags.includes('e') || undefined,
+    };
+  }
+
+  function isLegalMove(board, move) {
+    if (!move || !Number.isInteger(move.from) || !Number.isInteger(move.to)) return false;
+    const piece = board.squares[move.from];
+    if (!piece || piece[1] !== board.turn) return false;
+    const c = makeChess(board);
+    if (!c) return false;
+    return matchVerboseMove(c, board, move) != null;
+  }
+
+  // Возвращает нормализованный ход (с флагами castle/ep/promotion)
+  // либо исходный move, если совпадение не нашлось (как раньше).
+  function findMove(board, move) {
+    const c = makeChess(board);
+    if (!c) return move;
+    const v = matchVerboseMove(c, board, move);
+    return v ? verboseToGameMove(v) : move;
+  }
+
+  function applyMove(board, move) {
+    const c = makeChess(board);
+    if (!c) return cloneBoard(board);
+    const v = matchVerboseMove(c, board, move);
+    if (!v) return cloneBoard(board);
+    c.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: v.promotion || undefined });
+    return boardFromFen(c.fen());
+  }
+
+  // Реплей партии с нуля средствами chess.js: корректно обрабатывает
+  // рокировки, взятия на проходе, превращения, счётчики полуходов.
+  function replayChess(moves) {
+    const c = new Chess();
+    for (const move of (moves || [])) {
+      try {
+        const promo = move.promotion ? String(move.promotion).toLowerCase() : undefined;
+        c.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: promo });
+      } catch (e) {
+        // Пытаемся с ферзём по умолчанию (старое поведение), иначе — прерываем
+        try {
+          c.move({ from: indexToSquare(move.from), to: indexToSquare(move.to), promotion: 'q' });
+        } catch (e2) {
+          console.warn('[serverChess] replay: ход не применился:', move && move.from, '->', move && move.to, e2.message);
+          break;
+        }
+      }
+    }
+    return c;
+  }
+
+  function rebuildBoard(moves) {
+    return boardFromFen(replayChess(moves).fen());
+  }
+
+  function hasAnyLegalMove(board, color) {
+    const c = makeChess(board);
+    if (!c) return false;
+    if (color === board.turn) return c.moves().length > 0;
+    // Редкий случай: спрашивают про цвет, который сейчас не ходит —
+    // пересобираем позицию с нужной очередью хода.
+    try {
+      const fen = (board._fen || fenFromBoard(board)).split(' ');
+      fen[1] = color;
+      return new Chess(fen.join(' ')).moves().length > 0;
+    } catch (e) { return false; }
+  }
+
+  function isCheckmate(board) {
+    const c = makeChess(board);
+    return c ? c.isCheckmate() : false;
+  }
+
+  function isStalemate(board) {
+    const c = makeChess(board);
+    return c ? c.isStalemate() : false;
+  }
+
+  // Аргумент — массив squares (как в старом API: isInsufficientMaterial(board.squares))
+  function isInsufficientMaterial(squares) {
+    const probe = (turn) => {
+      try {
+        const fen = fenFromBoard({ squares, turn, castling: { wK: false, wQ: false, bK: false, bQ: false }, epSquare: -1 });
+        return new Chess(fen).isInsufficientMaterial();
+      } catch (e) { return null; }
+    };
+    const r = probe('w');
+    if (r !== null) return r;
+    const r2 = probe('b');
+    if (r2 !== null) return r2;
+    // Совсем экзотический случай (нет королей) — позиция невалидна,
+    // недостаток материала не заявляем.
     return false;
   }
-  // Отпечаток позиции для правила повторения: расстановка + очередь хода +
-  // права рокировки + клетка взятия на проходе (без счётчиков ходов).
-  function positionKey(board) {
-    return board.squares.map(p => p ? p[0] + p[1] : '-').join('') + '|' + board.turn + '|'
-      + (board.castling.wK?'1':'0') + (board.castling.wQ?'1':'0') + (board.castling.bK?'1':'0') + (board.castling.bQ?'1':'0')
-      + '|' + board.epSquare;
+
+  // Троекратное повторение и правило 50 ходов — по полной истории ходов:
+  // chess.js сам ведёт счёт повторений позиций и счётчик полуходов.
+  function isThreefoldRepetition(moves) {
+    try { return replayChess(moves).isThreefoldRepetition(); } catch (e) { return false; }
   }
-  // Реплеим партию с начала, считая: (а) сколько раз встречалась текущая
-  // позиция — для троекратного повторения, (б) полуходов с последнего
-  // взятия/хода пешки — для правила 50 ходов.
-  function replayForDrawRules(moves) {
-    let board = startBoard();
-    const counts = new Map();
-    counts.set(positionKey(board), 1);
-    let halfmove = 0;
-    for (const move of (moves || [])) {
-      const pseudo = pseudoLegalMoves(board, move.from);
-      const found = pseudo.find(m => m.to === move.to);
-      if (!found) break;
-      const piece = board.squares[move.from];
-      const isCapture = !!board.squares[move.to] || found.ep;
-      const isPawn = piece && piece[0] === 'P';
-      if (found.promotion !== undefined || move.promotion) found.promotion = move.promotion || 'Q';
-      board = applyMove(board, found);
-      halfmove = (isCapture || isPawn) ? 0 : halfmove + 1;
-      const key = positionKey(board);
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    return { board, repetitions: counts.get(positionKey(board)) || 1, halfmove };
+
+  function isFiftyMoveRule(moves) {
+    try { return replayChess(moves).isDrawByFiftyMoves(); } catch (e) { return false; }
   }
-  function isThreefoldRepetition(moves) { return replayForDrawRules(moves).repetitions >= 3; }
-  function isFiftyMoveRule(moves) { return replayForDrawRules(moves).halfmove >= 100; }
 
   return { startBoard, isLegalMove, applyMove, cloneBoard, rebuildBoard, findMove, isCheckmate, isStalemate, hasAnyLegalMove, isInsufficientMaterial, isThreefoldRepetition, isFiftyMoveRule };
 })();
@@ -2781,15 +2961,26 @@ const limiterSocketConnect = new RateLimiter(60_000, 200);
 
 
 async function main() {
+  // Fail-fast (issue H5): JWT_SECRET — единственный ключ идентичности на сайте
+  // (payload содержит username, роль берётся из БД по нему). Без проверки сервер
+  // молча стартовал с дефолтным/коротким секретом — это полный impersonation
+  // любого пользователя/админа через подделку токена. Теперь без сильного секрета
+  // сервер не запускается. Генерация: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+  if (!JWT_SECRET || typeof JWT_SECRET !== 'string' || JWT_SECRET.length < 32 || /change_me|changeme|secret$/i.test(JWT_SECRET)) {
+    console.error('❌ FATAL: JWT_SECRET не задан/слишком короткий/дефолтный. Сгенерируйте сильный секрет и укажите его в .env:');
+    console.error("   node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"");
+    process.exit(1);
+  }
+
   console.log('🐘 Подключение к PostgreSQL...');
   await pool.query('SELECT 1');
   console.log('✅ PostgreSQL подключён');
 
   await loadBansFromDB();
   await initPuzzleTables();
+  await initQuestTables();
   await initDurkaTables();
   await initClubChatTable();
-  await initDonateTable();
   await initTournamentChatTable();
   // Клубные турниры: привязка турнира к клубу + флаг «только для участников клуба»
   await db(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS club_id TEXT`);
@@ -2799,6 +2990,10 @@ async function main() {
   await db(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS is_interclub BOOLEAN DEFAULT FALSE`);
   await db(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS team_ids JSONB DEFAULT '[]'`);
   await db(`CREATE INDEX IF NOT EXISTS idx_tournaments_is_interclub ON tournaments(is_interclub)`);
+  // Expression-индекс под SQL-версию normForSimilarity (проверка «ник слишком
+  // похож» при регистрации) — раньше на каждую регистрацию читалась вся таблица
+  // users в Node (см. routes.js /api/register).
+  await db(`CREATE INDEX IF NOT EXISTS idx_users_norm_username ON users (translate(regexp_replace(username_low, '[-_.]', '', 'g'), 'іаеорсхв013', 'iaepcxboie'))`);
   await db(`
     CREATE TABLE IF NOT EXISTS deleted_usernames (
       username_low TEXT PRIMARY KEY,
@@ -2809,10 +3004,11 @@ async function main() {
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''`);
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fshr_rating INT`);
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fide_rating INT`);
-  // 2FA по email при входе
-  await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE`);
+  // Email/2FA полностью выведены из продукта (email нигде не используется) —
+  // колонка двухфакторки больше не нужна.
+  await db(`ALTER TABLE users DROP COLUMN IF EXISTS two_factor_enabled`);
   // VIP-значок: временный статус (метка времени окончания в мс), выдаётся вручную
-  // из админ-панели только chesshome и Marina64 (см. isVipGranter/requireVipGranter).
+  // из админ-панели сайт-админами (см. isVipGranter/requireVipGranter).
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_until BIGINT`);
   // Значки профиля (победитель сезона и т.п.): JSON-массив id из USER_BADGES,
   // выдаются/снимаются вручную из админ-панели.
@@ -2969,7 +3165,10 @@ async function main() {
   await db(`CREATE INDEX IF NOT EXISTS idx_appeal_msgs ON appeal_messages(appeal_id, created_at ASC)`);
 
   if (!clubs.find(c => c.id === 'chesshome-official')) {
-    const offClub = { id: 'chesshome-official', name: 'ChessHome', description: 'Официальный клуб шахматной платформы Chess Home.', createdAt: new Date().toISOString(), createdBy: 'ChessHome', admins: ['ChessHome'], members: ['ChessHome'], memberCount: 1, official: true };
+    // БАГ (исправлен): createdAt был new Date().toISOString() — строка в
+    // BIGINT-колонку created_at clubs. При каждом чистом старте (когда сид
+    // клуба создаётся) сервер падал с invalid input syntax for type bigint.
+    const offClub = { id: 'chesshome-official', name: 'ChessHome', description: 'Официальный клуб шахматной платформы Chess Home.', createdAt: Date.now(), createdBy: 'ChessHome', admins: ['ChessHome'], members: ['ChessHome'], memberCount: 1, official: true };
     clubs.push(offClub); await saveClub(offClub);
   }
   for (const adminName of ['chesshome', 'marina64']) {
@@ -3001,15 +3200,6 @@ module.exports = {
   pool,
   db,
   withTransaction,
-  Resend,
-  pendingPasswordChanges,
-  pendingDeletions,
-  pendingLogins,
-  TWO_FA_RESEND_COOLDOWN_MS,
-  twoFactorLastSent,
-  sendPasswordChangeEmail,
-  sendTwoFactorLoginEmail,
-  sendDeleteAccountEmail,
   BAD_NICK_WORDS,
   normNick,
   nickHasBadWord,
@@ -3130,10 +3320,8 @@ module.exports = {
   JS_SRC_RE,
   sendVersionedHtml,
   LICHESS_TOKEN,
-  YUKASSA_SHOP_ID,
-  YUKASSA_SECRET_KEY,
   SITE_URL,
-  initDonateTable,
+  sniffImageMime,
   loginFailStreaks,
   getLoginFailStreak,
   bumpLoginFailStreak,
@@ -3155,7 +3343,6 @@ module.exports = {
   forumViewSessions,
   handleUnfollow,
   blogAuthMiddleware,
-  blogAdminMiddleware,
   isBlogAdmin,
   decodeBlogField,
   blogSanitize,
@@ -3177,6 +3364,8 @@ module.exports = {
   handleEditClub,
   handleDeleteClub,
   initPuzzleTables,
+  initQuestTables,
+  getCurrentSeasonDay,
   initDurkaTables,
   durkaKeyMiddleware,
   parsePuzzleSolution,

@@ -11,153 +11,93 @@
 
 const {
   express,
-  http,
-  Server,
-  compression,
   bcrypt,
   jwt,
   uuidv4,
   path,
   fs,
-  cors,
-  Pool,
-  multer,
   pool,
   db,
   withTransaction,
-  Resend,
-  pendingPasswordChanges,
-  pendingDeletions,
-  pendingLogins,
-  TWO_FA_RESEND_COOLDOWN_MS,
-  twoFactorLastSent,
-  sendPasswordChangeEmail,
-  sendTwoFactorLoginEmail,
-  sendDeleteAccountEmail,
-  BAD_NICK_WORDS,
-  normNick,
+  getCurrentSeasonDay,
   nickHasBadWord,
   PROFILE_EMOJIS,
   normForSimilarity,
   app,
-  parseCookieHeader,
-  isProd,
   AUTH_COOKIE_OPTS,
-  DEVICE_COOKIE_OPTS,
   getAuthToken,
-  RateLimiter,
-  limiterGeneral,
   limiterAuth,
   limiterStrict,
-  socketLimiter,
   limiterRegStrict,
-  STORM_DURATION_MS,
   STORM_MAX_TIME_MS,
   STORM_MIN_MS_PER_PUZZLE,
   stormRuns,
   bannedIPs,
   bannedDevices,
-  loadBansFromDB,
   saveBanToDB,
   removeBanFromDB,
   usersCache,
   cacheUser,
   rowToUser,
   isVip,
-  isVipGranter,
   USER_BADGES,
   getUserBadges,
   getUser,
   saveUser,
   globalChat,
-  loadChat,
-  saveChatMsg,
-  deleteChatMsg,
   tournaments,
-  loadTournaments,
   saveTournament,
-  deleteTournamentFromDB,
   clubs,
-  loadClubs,
   saveClub,
   deleteClubFromDB,
   CLUB_CHAT_MAX,
-  clubChats,
-  clubChatBans,
   getClubChat,
   getClubChatBans,
-  initClubChatTable,
-  loadClubChats,
   saveClubChatMsg,
   deleteClubChatMsgsByUser,
   isSiteAdmin,
   isClubModerator,
   canManageTournament,
   MAX_INTERCLUB_TEAMS,
-  extractClubIdFromLink,
   resolveInterclubTeams,
   requireTournamentManager,
   canWriteInClubChat,
   TOURNAMENT_CHAT_MAX,
-  TOURNAMENT_CHAT_READONLY_AFTER_MS,
-  tournamentChats,
-  tournamentChatMutes,
   getTournamentChat,
   getTournamentChatMutes,
   isTournamentChatOpen,
   canModerateTournamentChat,
-  initTournamentChatTable,
-  loadTournamentChats,
   saveTournamentChatMsg,
   wipeTournamentChatMsgsByUser,
   forumThreads,
   forumReplies,
-  loadForum,
   saveForumThread,
   deleteForumThread,
   saveForumReply,
   deleteForumReply,
   blogPosts,
-  loadBlog,
   saveBlogPost,
-  deleteBlogPost,
   newsPosts,
-  loadNews,
   saveNewsPost,
-  deleteNewsPost,
   newsAuthors,
-  loadNewsAuthors,
-  server,
   io,
-  PORT,
   JWT_SECRET,
   RESERVED,
   SYSTEM_SENDER,
   isSystemSender,
   sessions,
-  usernameToSocketId,
   onlineUsers,
   pendingChallenges,
   activeGames,
   tournamentGames,
   workers,
-  analyzeJobs,
-  pickIdleWorker,
   ipBanMiddleware,
   getIP,
   isLocalIP,
-  vpnCheckCache,
-  VPN_CACHE_TTL,
   isVpnOrProxy,
   rateLimit,
-  BUILD_VERSION,
-  JS_SRC_RE,
   sendVersionedHtml,
   LICHESS_TOKEN,
-  YUKASSA_SHOP_ID,
-  YUKASSA_SECRET_KEY,
-  SITE_URL,
-  initDonateTable,
   loginFailStreaks,
   getLoginFailStreak,
   bumpLoginFailStreak,
@@ -179,7 +119,6 @@ const {
   forumViewSessions,
   handleUnfollow,
   blogAuthMiddleware,
-  blogAdminMiddleware,
   isBlogAdmin,
   decodeBlogField,
   blogSanitize,
@@ -195,17 +134,12 @@ const {
   handleDeleteNewsPost,
   getNewsCommentMute,
   handleDeleteNewsComment,
-  UPLOADS_DIR,
-  uploadStorage,
   uploadImage,
   handleEditClub,
   handleDeleteClub,
-  initPuzzleTables,
-  initDurkaTables,
   durkaKeyMiddleware,
   parsePuzzleSolution,
   handleDeletePuzzle,
-  SPA_ROUTES,
   handleDeleteDevDiaryEntry,
   handleDeleteDevDiaryComment,
   authMiddleware,
@@ -218,29 +152,79 @@ const {
   sanitizeTournament,
   getTournamentStatus,
   verifyToken,
-  liveClock,
-  hasFullMove,
-  endGameAuthoritative,
   findSocketByUsername,
   emitToAdmins,
-  recordGame,
-  updateStats,
-  REMATCH_GRACE_PERIOD,
   tryPairTournamentPlayers,
-  FIRST_MOVE_TIMEOUT,
-  startTournamentGame,
   finishTournamentGame,
-  ANTICHEAT_THRESHOLD,
-  ANTICHEAT_STREAK_BAN,
-  checkAnticheat,
   anticheatBan,
   startGame,
-  serverChess,
-  limiterSocketConnect,
   main,
 } = require('./core');
 const moderation = require('./moderation');
 require('./botmoderator');
+
+// Криптографический PRNG для кодов подтверждения (раньше использовался
+// Math.random — предсказуемая не-криптографическая последовательность).
+const crypto = require('crypto');
+
+
+// ── Async-изоляция роутов (D6) ────────────────────────────────
+// Express 4 НЕ ловит rejected-промисы в async-хендлерах: любой throw/отказ
+// в ~40 async-роутах оставлял запрос висеть навсегда и создавал
+// unhandledRejection (в Node >= 15 — падение процесса). Вместо ручных
+// try/catch в каждом роуте — оборачиваем все регистрируемые хендлеры
+// разово: app.get/post/patch/delete/put вызываются через обёртку, которая
+// транслирует ошибки в next(err), а финальный error-хендлер в конце файла
+// отвечает клиенту 500.
+const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'all'];
+for (const method of HTTP_METHODS) {
+  const original = app[method].bind(app);
+  app[method] = function (routePath, ...handlers) {
+    const wrapped = handlers.map(h => {
+      if (typeof h !== 'function') return h;
+      // Пропускаем express-промежуточные слои с 4+ аргументами (error-хендлеры)
+      if (h.length >= 4) return h;
+      return function (req, res, next) {
+        try {
+          const r = h(req, res, next);
+          if (r && typeof r.catch === 'function') r.catch(next);
+          return r;
+        } catch (e) { next(e); }
+      };
+    });
+    return original(routePath, ...wrapped);
+  };
+}
+
+
+// ── Общие хелперы валидации (DRY) ─────────────────────────────
+// Пагинация: единые границы для всех списков. Раньше каждый роут делал
+// parseInt по-своему: limit=-5 уезжал в SQL как LIMIT -5 (ошибка PG),
+// limit=100000 — как конкурент БД.
+function parsePagination(query, { defaultLimit = 20, maxLimit = 100 } = {}) {
+  let limit = parseInt(query.limit, 10);
+  if (!Number.isFinite(limit) || limit < 1) limit = defaultLimit;
+  if (limit > maxLimit) limit = maxLimit;
+  let offset = parseInt(query.offset, 10);
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  let page = parseInt(query.page, 10);
+  if (!Number.isFinite(page) || page < 1) page = 1;
+  return { limit, offset, page };
+}
+
+// Контроль времени «10+0», «3+2», «60+0s» — единая проверка для турниров
+// и вызовов (раньше в tournaments.timeControl попадала любая строка,
+// а нестрока в startGame валила процесс TypeError'ом в split('+')).
+const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?\+\d{1,2}(s)?$/;
+function parseTimeControl(tc) {
+  if (typeof tc !== 'string' || !TIME_CONTROL_RE.test(tc)) return null;
+  const [base, inc] = tc.split('+');
+  const seconds = base.endsWith('s') ? (parseInt(base, 10) || 15) : (parseFloat(base) || 10) * 60;
+  return { raw: tc, baseSeconds: Math.min(seconds, 3 * 3600), increment: parseInt(inc, 10) || 0 };
+}
+
+// Кэш «задачи дня» (см. GET /api/puzzles/daily): пересчёт раз в сутки.
+let dailyPuzzleCache = { day: -1, payload: null };
 
 
 
@@ -305,109 +289,20 @@ app.get('/following/:username', (req, res) => res.sendFile(path.join(__dirname, 
 
 app.get('/dev-diary', (req, res) => res.sendFile(path.join(__dirname, '../public/dev-diary.html')));
 
-app.get('/donate',   (req, res) => res.sendFile(path.join(__dirname, '../public/donate.html')));
-
 app.get('/durka',    (req, res) => res.sendFile(path.join(__dirname, '../public/durka.html')));
 
 app.get('/ai', (req, res) => res.sendFile(path.join(__dirname, '../public/ai.html')));
 
 
-// Создать платёж через ЮKassa
-app.post('/api/donate/create', rateLimit(limiterStrict), async (req, res) => {
-  try {
-    const { amount, message, username } = req.body;
-    const amountNum = parseFloat(amount);
-    if (!amountNum || amountNum < 10 || amountNum > 100000)
-      return res.status(400).json({ error: 'Сумма должна быть от 10 до 100 000 ₽' });
-
-    const donateId = uuidv4();
-    const idempotenceKey = uuidv4();
-
-    const payload = {
-      amount:       { value: amountNum.toFixed(2), currency: 'RUB' },
-      confirmation: { type: 'redirect', return_url: `${SITE_URL}/donate?success=1&id=${donateId}` },
-      capture:      true,
-      description:  message ? `Донат Chess Home: ${message.slice(0, 100)}` : 'Донат Chess Home',
-      metadata:     { donate_id: donateId, username: username || 'anonymous' },
-    };
-
-    const auth = Buffer.from(`${YUKASSA_SHOP_ID}:${YUKASSA_SECRET_KEY}`).toString('base64');
-    const ykRes = await fetch('https://api.yookassa.ru/v3/payments', {
-      method: 'POST',
-      headers: {
-        'Authorization':  `Basic ${auth}`,
-        'Content-Type':   'application/json',
-        'Idempotence-Key': idempotenceKey,
-      },
-      body: JSON.stringify(payload),
-    });
-    const ykData = await ykRes.json();
-    if (!ykRes.ok) {
-      console.error('[Donate] ЮKassa error:', ykData);
-      return res.status(502).json({ error: 'Ошибка платёжного сервиса. Попробуйте позже.' });
-    }
-
-    // Сохраняем в БД
-    await db(
-      'INSERT INTO donations (id, username, amount, currency, message, status, payment_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [donateId, username || null, amountNum, 'RUB', message || null, 'pending', ykData.id, Date.now()]
-    );
-
-    res.json({ confirmation_url: ykData.confirmation.confirmation_url, donate_id: donateId });
-  } catch (e) {
-    console.error('[Donate] create error:', e.message);
-    res.status(500).json({ error: 'Внутренняя ошибка сервера' });
-  }
-});
-
-
-// Webhook от ЮKassa — подтверждение оплаты
-app.post('/api/donate/webhook', express.json({ type: '*/*' }), async (req, res) => {
-  try {
-    const { event, object } = req.body;
-    if (event === 'payment.succeeded' && object?.metadata?.donate_id) {
-      await db(
-        'UPDATE donations SET status=$1 WHERE id=$2',
-        ['succeeded', object.metadata.donate_id]
-      );
-      console.log(`[Donate] ✅ Платёж успешен: ${object.metadata.donate_id} (${object.amount?.value} ₽)`);
-    }
-    res.sendStatus(200);
-  } catch (e) {
-    console.error('[Donate] webhook error:', e.message);
-    res.sendStatus(500);
-  }
-});
-
-
-// Топ донатёров (публичный)
-app.get('/api/donate/top', async (req, res) => {
-  try {
-    const r = await db(`
-      SELECT username, SUM(amount) AS total
-      FROM donations
-      WHERE status = 'succeeded' AND username IS NOT NULL
-      GROUP BY username
-      ORDER BY total DESC
-      LIMIT 10
-    `);
-    res.json(r.rows);
-  } catch (e) {
-    res.json([]);
-  }
-});
-
-
-// Проверка статуса конкретного доната (для страницы успеха)
-app.get('/api/donate/status/:id', async (req, res) => {
-  try {
-    const r = await db('SELECT status, amount, username, message FROM donations WHERE id=$1', [req.params.id]);
-    if (!r.rows[0]) return res.status(404).json({ error: 'Не найдено' });
-    res.json(r.rows[0]);
-  } catch (e) {
-    res.status(500).json({ error: 'Ошибка' });
-  }
-});
+// ══════════════════════════════════════════════════════════════
+//  ЮKassa — мёртвый код УДАЛЁН
+//  Платежи вырезаны из продукта: donate.html не существует (роут /donate
+//  отдавал бы sendFile по несуществующему файлу), фронтенд не вызывает
+//  ни один /api/donate/* роут, хедер ведёт на CloudTips. Удалены:
+//  POST /api/donate/create, POST /api/donate/webhook (принимал любые
+//  подделки без проверки подписи), GET /api/donate/top,
+//  GET /api/donate/status/:id.
+// ══════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
 //  AUTH & USER API
@@ -449,12 +344,19 @@ app.post('/api/register',
       const deletedCheck = await db('SELECT username_low FROM deleted_usernames WHERE username_low = $1', [username.toLowerCase()]);
       if (deletedCheck.rows.length > 0) return res.status(400).json({ error: 'Этот ник недоступен для регистрации' });
 
-      const allUsers = await db('SELECT username FROM users');
+      // Full scan (БАГ производительности исправлен): раньше SELECT username FROM users
+      // тянул ВСЮ таблицу юзеров на каждую регистрацию. Теперь нормализация
+      // normForSimilarity воспроизведена на стороне SQL (translate + regexp_replace),
+      // точное сравнение выполняет PostgreSQL по expression-индексу
+      // idx_users_norm_username (создаётся в main() в core.js).
       const normNew = normForSimilarity(username);
-      for (const row of allUsers.rows) {
-        if (normForSimilarity(row.username) === normNew)
-          return res.status(400).json({ error: 'Ник слишком похож на уже существующий' });
-      }
+      const clash = await db(
+        `SELECT username FROM users
+          WHERE translate(regexp_replace(username_low, '[-_.]', '', 'g'), 'іаеорсхв013', 'iaepcxboie') = $1
+          LIMIT 1`,
+        [normNew]
+      );
+      if (clash.rows.length > 0) return res.status(400).json({ error: 'Ник слишком похож на уже существующий' });
 
       if (!isLocalIP(ip)) {
         const ipCount = await db('SELECT COUNT(*) FROM users WHERE created_from_ip = $1', [ip]);
@@ -495,17 +397,25 @@ app.post('/api/register',
 );
 
 
-app.post('/api/login', 
+app.post('/api/login',
   rateLimit(limiterAuth, 'Слишком много попыток входа с вашего IP. Подождите минуту.'),
   ipBanMiddleware,
-  async (req, res, next) => {
-    // Капча отключена по запросу (была нестабильна).
-    next();
-  },
   async (req, res) => {
   try {
     const { username, password } = req.body;
-    const usernameLow = (username || '').toLowerCase();
+    const usernameLow = (username || '').toLowerCase().trim();
+    if (!usernameLow || typeof password !== 'string') return res.status(400).json({ error: 'Укажите имя и пароль' });
+
+    // Брутфорс (issue H2): раньше счётчик неудач только пополнялся, но нигде
+    // не проверялся (getLoginFailStreak был мёртвым кодом) — 1000 попыток/мин
+    // с IP при Symbolic-лимитере. Теперь после 5 неудачных подряд логин
+    // блокируется на 15 минут независимо от правильности пароля.
+    const streak = getLoginFailStreak(usernameLow);
+    if (streak >= 5) {
+      const waitMin = Math.ceil((loginFailStreaks.get(usernameLow).resetAt - Date.now()) / 60000);
+      return res.status(429).json({ error: `Слишком много неудачных попыток. Попробуйте через ${Math.max(waitMin, 1)} мин.` });
+    }
+
     const user = await getUser(usernameLow);
     if (!user) { bumpLoginFailStreak(usernameLow); return res.status(401).json({ error: 'Неверное имя или пароль' }); }
     if (user.banned) return res.status(403).json({ error: `Заблокирован: ${user.banReason || ''}` });
@@ -525,32 +435,6 @@ app.post('/api/login',
 });
 
 
-app.post('/api/login/verify-2fa',
-  rateLimit(limiterAuth, 'Слишком много попыток. Подождите минуту.'),
-  ipBanMiddleware,
-  async (req, res) => {
-    const { code } = req.body;
-    if (!code) return res.status(400).json({ error: 'Введите код' });
-
-    const pending = pendingLogins.get(String(code));
-    if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-    if (Date.now() > pending.expiresAt) {
-      pendingLogins.delete(String(code));
-      return res.status(400).json({ error: 'Код истёк. Войдите заново.' });
-    }
-
-    const user = await getUser(pending.username.toLowerCase());
-    pendingLogins.delete(String(code));
-    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-    if (user.banned) return res.status(403).json({ error: `Заблокирован: ${user.banReason || ''}` });
-
-    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('ch_token', token, AUTH_COOKIE_OPTS);
-    res.json({ user: sanitizeUser(user, true) });
-  }
-);
-
-
 app.post('/api/logout', (req, res) => {
   res.clearCookie('ch_token', { ...AUTH_COOKIE_OPTS, maxAge: undefined });
   res.json({ ok: true });
@@ -568,138 +452,28 @@ app.get('/api/users/search', async (req, res) => {
 app.get('/api/me', authMiddleware, async (req, res) => {
   const me = await getUser(req.user.username.toLowerCase());
   if (!me) return res.status(401).json({ error: 'Не найден' });
-  // twoFactorEnabled — это настройка безопасности самого пользователя,
-  // не публичный профиль, поэтому её нет в sanitizeUser (используется и для чужих профилей).
-  res.json({ ...sanitizeUser(me, true), twoFactorEnabled: !!me.twoFactorEnabled });
+  res.json(sanitizeUser(me, true));
 });
 
 
-app.post('/api/account/2fa/toggle', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов. Попробуйте позже.'), async (req, res) => {
-  const { enabled } = req.body;
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (enabled && !user.email) return res.status(400).json({ error: 'Для 2FA нужен привязанный email' });
-
-  user.twoFactorEnabled = !!enabled;
-  await db('UPDATE users SET two_factor_enabled=$1 WHERE id=$2', [user.twoFactorEnabled, user.id]);
-  cacheUser(user);
-  res.json({ ok: true, twoFactorEnabled: user.twoFactorEnabled });
-});
-
-
-app.post('/api/account/request-password-change', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов. Попробуйте позже.'), async (req, res) => {
-  const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6)
-    return res.status(400).json({ error: 'Новый пароль минимум 6 символов' });
-
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (!user.email) return res.status(400).json({ error: 'Email не привязан к аккаунту' });
-
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const newHash = await bcrypt.hash(newPassword, 10);
-
-  for (const [k, v] of pendingPasswordChanges.entries()) {
-    if (v.username === user.username) pendingPasswordChanges.delete(k);
+// ── Удаление аккаунта ────────────────────────────────────────
+// Раньше удаление требовало код из письма: но email из продукта выведен
+// (нигде не используется), поэтому подтверждение теперь — текущим паролем.
+// Кроме того, старый confirm-delete использовал client.query без определённого
+// client (ReferenceError при любом запросе, 500) — вся очистка данных теперь
+// идёт через withTransaction из core.js, атомарно.
+app.post('/api/account/delete', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
+  const { password } = req.body;
+  if (typeof password !== 'string' || !password) {
+    return res.status(400).json({ error: 'Укажите пароль для подтверждения' });
   }
-
-  pendingPasswordChanges.set(code, {
-    username: user.username,
-    newHash,
-    expiresAt: Date.now() + 15 * 60 * 1000,
-  });
-
-  try {
-    await Promise.race([
-      sendPasswordChangeEmail(user.email, code),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
-    ]);
-    res.json({ ok: true, message: 'Код подтверждения отправлен на ' + user.email });
-  } catch (err) {
-    console.error('[PasswordChange]', err.message);
-    pendingPasswordChanges.delete(code);
-    res.status(500).json({ error: 'Не удалось отправить письмо: ' + err.message });
-  }
-});
-
-
-app.post('/api/account/confirm-password-change', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Введите код' });
-
-  const pending = pendingPasswordChanges.get(String(code));
-  if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-  if (Date.now() > pending.expiresAt) {
-    pendingPasswordChanges.delete(String(code));
-    return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
-  }
-  if (pending.username !== req.user.username)
-    return res.status(403).json({ error: 'Код не принадлежит этому аккаунту' });
-
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-
-  user.passwordHash = pending.newHash;
-  await db('UPDATE users SET password_hash=$1 WHERE id=$2', [user.passwordHash, user.id]);
-  cacheUser(user);
-  pendingPasswordChanges.delete(String(code));
-
-  const sock = findSocketByUsername(user.username);
-  if (sock) { sock.emit('session_expired', 'Пароль изменён'); sock.disconnect(); }
-
-  res.json({ ok: true, message: 'Пароль успешно изменён' });
-});
-
-
-app.post('/api/account/request-delete', authMiddleware, rateLimit(limiterStrict, 'Слишком много запросов.'), async (req, res) => {
-  const user = await getUser(req.user.username.toLowerCase());
-  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  if (user.role === 'admin') return res.status(403).json({ error: 'Нельзя удалить аккаунт администратора' });
-  if (!user.email) return res.status(400).json({ error: 'Email не привязан к аккаунту' });
-
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-
-  for (const [k, v] of pendingDeletions.entries()) {
-    if (v.username === user.username) pendingDeletions.delete(k);
-  }
-
-  pendingDeletions.set(code, {
-    username: user.username,
-    expiresAt: Date.now() + 15 * 60 * 1000,
-  });
-
-  try {
-    await Promise.race([
-      sendDeleteAccountEmail(user.email, user.username, code),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
-    ]);
-    res.json({ ok: true, message: 'Код подтверждения отправлен на ' + user.email });
-  } catch (err) {
-    console.error('[DeleteAccount]', err.message);
-    pendingDeletions.delete(code);
-    res.status(500).json({ error: 'Не удалось отправить письмо: ' + err.message });
-  }
-});
-
-
-app.post('/api/account/confirm-delete', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Введите код' });
-
-  const pending = pendingDeletions.get(String(code));
-  if (!pending) return res.status(400).json({ error: 'Неверный или истёкший код' });
-  if (Date.now() > pending.expiresAt) {
-    pendingDeletions.delete(String(code));
-    return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
-  }
-  if (pending.username !== req.user.username)
-    return res.status(403).json({ error: 'Код не принадлежит этому аккаунту' });
 
   const user = await getUser(req.user.username.toLowerCase());
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
   if (user.role === 'admin') return res.status(403).json({ error: 'Нельзя удалить аккаунт администратора' });
-
-  pendingDeletions.delete(String(code));
+  if (!await bcrypt.compare(password, user.passwordHash)) {
+    return res.status(401).json({ error: 'Неверный пароль' });
+  }
 
   try {
     await db(`
@@ -710,7 +484,44 @@ app.post('/api/account/confirm-delete', authMiddleware, rateLimit(limiterAuth, '
     `);
     await db('INSERT INTO deleted_usernames (username_low, deleted_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.username.toLowerCase(), Date.now()]);
 
-    await db('DELETE FROM users WHERE id = $1', [user.id]);
+    // Полная очистка (issue #50) в ОДНОЙ транзакции: удаление пользователя,
+    // ЛС, блокировок, подписок, попыток задач, жалоб, обращений, членства
+    // в клубах. Каждая таблица проверяется через to_regclass: в транзакции
+    // PostgreSQL любая ошибка (например, отсутствующая таблица) абортит ВСЮ
+    // транзакцию, поэтому «мягкие» try/catch вокруг отдельных DELETE не работают.
+    await withTransaction(async (client) => {
+      const tableExists = async (name) => {
+        const r = await client.query('SELECT to_regclass($1) AS t', [`public.${name}`]);
+        return !!r.rows[0]?.t;
+      };
+      await client.query('DELETE FROM users WHERE id = $1', [user.id]);
+      if (await tableExists('dm_messages')) {
+        await client.query('DELETE FROM dm_messages WHERE from_user = $1 OR to_user = $1', [user.username]);
+      }
+      if (await tableExists('dm_blocks')) {
+        await client.query('DELETE FROM dm_blocks WHERE blocker = $1 OR blocked = $1', [user.username]);
+      }
+      if (await tableExists('follows')) {
+        await client.query('DELETE FROM follows WHERE follower = $1 OR following = $1', [user.username]);
+      }
+      if (await tableExists('puzzle_attempts')) {
+        // Колонки username в puzzle_attempts нет (только user_id) — старый
+        // код с "WHERE username" абортит транзакцию после первого же запуска.
+        await client.query('DELETE FROM puzzle_attempts WHERE user_id = $1', [user.id]);
+      }
+      if (await tableExists('reports')) {
+        await client.query('DELETE FROM reports WHERE reporter = $1', [user.username]);
+      }
+      if (await tableExists('appeals')) {
+        await client.query('DELETE FROM appeals WHERE username = $1', [user.username]);
+      }
+      if (await tableExists('club_members')) {
+        await client.query('DELETE FROM club_members WHERE username = $1', [user.username]);
+      }
+    });
+
+    // Чат-история — вне транзакции (функции core, у них свои запросы)
+    await removeUserChatMessages(user.username).catch(() => {});
     usersCache.delete(user.username.toLowerCase());
 
     const sock = findSocketByUsername(user.username);
@@ -719,7 +530,7 @@ app.post('/api/account/confirm-delete', authMiddleware, rateLimit(limiterAuth, '
     console.log(`[DeleteAccount] Аккаунт удалён: ${user.username}`);
     res.json({ ok: true, message: 'Аккаунт удалён' });
   } catch (err) {
-    console.error('[DeleteAccount confirm]', err.message);
+    console.error('[DeleteAccount]', err.message);
     res.status(500).json({ error: 'Ошибка при удалении: ' + err.message });
   }
 });
@@ -737,7 +548,8 @@ app.get('/api/users/:username', async (req, res) => {
 
 app.get('/api/users/:username/games', async (req, res) => {
   const u = req.params.username;
-  const limit = parseInt(req.query.limit) || 20;
+  // Пагинация нормализована (limit=-5 уезжал в SQL как LIMIT -5 → ошибка PG)
+  const { limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
   const r = await db('SELECT * FROM games WHERE white = $1 OR black = $1 ORDER BY ended_at DESC LIMIT $2', [u, limit]);
   res.json(r.rows.map(row => ({
     id: row.id, white: row.white, black: row.black,
@@ -998,6 +810,38 @@ app.get('/api/admin/users', authMiddleware, async (req, res) => {
 });
 
 
+// Выдача/снятие роли администратора в рантайме (issue #27).
+// Роль — источник истины для requireAdmin и всех is*Admin-проверок.
+app.post('/api/admin/role', authMiddleware, async (req, res) => {
+  await requireAdmin(req, res, async () => {
+    try {
+      const target = await getUser(String(req.body.username || '').toLowerCase());
+      if (!target) return res.status(404).json({ error: 'Не найден' });
+      if (target.username.toLowerCase() === String(req.user.username).toLowerCase())
+        return res.status(400).json({ error: 'Нельзя изменить собственную роль' });
+
+      const grant = !!req.body.grant;
+      if (grant) {
+        if (target.role === 'admin') return res.json({ ok: true, role: 'admin' });
+        target.role = 'admin';
+        await saveUser(target);
+        console.log(`[Admin] ${req.user.username} выдал роль администратора: ${target.username}`);
+      } else {
+        if (target.role !== 'admin') return res.json({ ok: true, role: target.role || 'user' });
+        target.role = 'user';
+        await saveUser(target);
+        console.log(`[Admin] ${req.user.username} снял роль администратора: ${target.username}`);
+      }
+      await logAdminAction(req.user.username, grant ? 'role_grant' : 'role_revoke', target.username, {});
+      res.json({ ok: true, role: target.role });
+    } catch (e) {
+      console.error('[AdminRole]', e);
+      res.status(500).json({ error: 'Ошибка смены роли: ' + e.message });
+    }
+  });
+});
+
+
 app.post('/api/admin/ban', authMiddleware, async (req, res) => {
   await requireAdmin(req, res, async () => {
     try {
@@ -1081,8 +925,8 @@ app.post('/api/admin/unshadowban', authMiddleware, async (req, res) => {
 
 
 // ── VIP-значок ──────────────────────────────────────────────────
-// Выдают/снимают только chesshome и Marina64 (requireVipGranter),
-// а не любой admin — так попросил владелец.
+// Выдают/снимают сайт-админы (requireVipGranter: роль 'admin' в БД либо
+// legacy-ники bootstrap — см. isVipGranter).
 app.post('/api/admin/vip/grant', authMiddleware, async (req, res) => {
   await requireVipGranter(req, res, async () => {
     try {
@@ -1400,16 +1244,25 @@ app.post('/api/appeals', authMiddleware, rateLimit(limiterStrict), async (req, r
 
 
 app.get('/api/appeals/mine', authMiddleware, async (req, res) => {
+  // N+1 (БАГ производительности исправлен): раньше на каждое обращение — отдельный
+  // SELECT сообщений (до 20+ запросов). Теперь JOIN-подход: два запроса суммарно —
+  // сами обращения + все сообщения одним списком, группируем в памяти.
   const list = await db(`SELECT * FROM appeals WHERE username = $1 ORDER BY created_at DESC LIMIT 20`, [req.user.username]);
-  const appeals = [];
-  for (const row of list.rows) {
-    const msgs = await db(`SELECT * FROM appeal_messages WHERE appeal_id = $1 ORDER BY created_at ASC`, [row.id]);
-    appeals.push({
-      id: row.id, reason: row.reason, status: row.status, awaiting: row.awaiting,
-      createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
-      messages: msgs.rows.map(m => ({ id: m.id, author: m.author, isAdmin: m.is_admin, message: m.message, createdAt: Number(m.created_at) }))
-    });
+  const ids = list.rows.map(r => r.id);
+  const byAppeal = new Map();
+  if (ids.length) {
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    const allMsgs = await db(`SELECT * FROM appeal_messages WHERE appeal_id IN (${placeholders}) ORDER BY created_at ASC`, ids);
+    for (const m of allMsgs.rows) {
+      if (!byAppeal.has(m.appeal_id)) byAppeal.set(m.appeal_id, []);
+      byAppeal.get(m.appeal_id).push(m);
+    }
   }
+  const appeals = list.rows.map(row => ({
+    id: row.id, reason: row.reason, status: row.status, awaiting: row.awaiting,
+    createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
+    messages: (byAppeal.get(row.id) || []).map(m => ({ id: m.id, author: m.author, isAdmin: m.is_admin, message: m.message, createdAt: Number(m.created_at) }))
+  }));
   res.json(appeals);
 });
 
@@ -1578,11 +1431,31 @@ app.post('/api/tournaments', authMiddleware, async (req, res) => {
   }
 
   const bl = Array.isArray(blacklist) ? blacklist.map(s => String(s).toLowerCase().trim()).filter(Boolean).slice(0, 100) : [];
+
+  // Валидация числовых полей (issue M8): раньше timeControl сохранялся как есть
+  // (любая строка потом уезжала в startGame → split('+')), durationMinutes без
+  // границ давала NaN → endsAt: NaN ломал статусы турнира, maxParticipants/рейтинги
+  // — произвольные числа. Всё приводим к безопасным границам.
+  const tc = parseTimeControl(timeControl);
+  if (!tc) return res.status(400).json({ error: 'Неверный контроль времени (формат «10+0», «3+2»)' });
+
+  let duration = parseInt(durationMinutes, 10);
+  if (!Number.isFinite(duration)) return res.status(400).json({ error: 'Неверная длительность' });
+  duration = Math.max(5, Math.min(duration, 7 * 24 * 60)); // 5 минут … 7 суток
+
+  let maxP = parseInt(maxParticipants, 10);
+  if (!Number.isFinite(maxP) || maxP < 0) maxP = 0;
+  maxP = Math.min(maxP, 512);
+
+  let minR = parseInt(minRating, 10); if (!Number.isFinite(minR) || minR < 0) minR = 0;
+  let maxR = parseInt(maxRating, 10); if (!Number.isFinite(maxR) || maxR <= 0) maxR = 9999;
+  if (minR > maxR) { const tmp = minR; minR = maxR; maxR = tmp; }
+
   const tournament = {
     id: uuidv4(), name: name.trim().slice(0, 60), description: (description || '').trim().slice(0, 1000),
-    timeControl, durationMinutes: parseInt(durationMinutes),
-    startsAt: startTime, endsAt: startTime + parseInt(durationMinutes) * 60000,
-    maxParticipants: parseInt(maxParticipants) || 0, minRating: parseInt(minRating) || 0, maxRating: parseInt(maxRating) || 9999,
+    timeControl: tc.raw, durationMinutes: duration,
+    startsAt: startTime, endsAt: startTime + duration * 60000,
+    maxParticipants: maxP, minRating: minR, maxRating: maxR,
     blacklist: bl, createdBy: user.username, createdAt: now,
     participants: [], games: [], winner: null,
     clubId: finalClubId, clubOnly: finalClubOnly,
@@ -1634,13 +1507,22 @@ app.post('/api/tournaments/interclub', authMiddleware, async (req, res) => {
   }
 
   const bl = Array.isArray(blacklist) ? blacklist.map(s => String(s).toLowerCase().trim()).filter(Boolean).slice(0, 100) : [];
+  // Валидация — как в POST /api/tournaments (issue M8)
+  const tc = parseTimeControl(timeControl);
+  if (!tc) return res.status(400).json({ error: 'Неверный контроль времени (формат «10+0», «3+2»)' });
+  let duration = parseInt(durationMinutes, 10);
+  if (!Number.isFinite(duration)) return res.status(400).json({ error: 'Неверная длительность' });
+  duration = Math.max(5, Math.min(duration, 7 * 24 * 60));
+  let minR = parseInt(minRating, 10); if (!Number.isFinite(minR) || minR < 0) minR = 0;
+  let maxR = parseInt(maxRating, 10); if (!Number.isFinite(maxR) || maxR <= 0) maxR = 9999;
+  if (minR > maxR) { const tmp = minR; minR = maxR; maxR = tmp; }
   const tournament = {
     id: uuidv4(), name: name.trim().slice(0, 60), description: (description || '').trim().slice(0, 1000),
-    timeControl, durationMinutes: parseInt(durationMinutes),
-    startsAt: startTime, endsAt: startTime + parseInt(durationMinutes) * 60000,
+    timeControl: tc.raw, durationMinutes: duration,
+    startsAt: startTime, endsAt: startTime + duration * 60000,
     // У межклубных турниров нет общего лимита участников — он естественно
     // ограничен суммарным числом членов заявленных команд.
-    maxParticipants: 0, minRating: parseInt(minRating) || 0, maxRating: parseInt(maxRating) || 9999,
+    maxParticipants: 0, minRating: minR, maxRating: maxR,
     blacklist: bl, createdBy: user.username, createdAt: now,
     participants: [], games: [], winner: null,
     clubId: null, clubOnly: false,
@@ -1966,7 +1848,19 @@ app.get('/api/dm/messages/:partner', authMiddleware, async (req, res) => {
   // Сообщения, отправленные теневым баном, видит только сам отправитель —
   // если это писал partner, а не я, они для меня как будто не существуют.
   const rows = r.rows.filter(m => !m.shadow_hidden || m.from_user.toLowerCase() === me);
-  const msgs = rows.map(m => ({ id: m.id, from: m.from_user, to: m.to_user, text: m.text, ts: m.ts, read: m.read }));
+  // Ответы (issue #56): подтягиваем цитируемые сообщения одной выборкой.
+  const quotedIds = rows.map(m => m.reply_to_id).filter(Boolean);
+  const quotedMap = new Map();
+  if (quotedIds.length) {
+    const uniq = [...new Set(quotedIds)];
+    const placeholders = uniq.map((_, i) => `$${i + 1}`).join(',');
+    const qr = await db(`SELECT id, from_user, text FROM dm_messages WHERE id IN (${placeholders})`, uniq).catch(() => ({ rows: [] }));
+    for (const qm of qr.rows) quotedMap.set(qm.id, { id: qm.id, from: qm.from_user, text: String(qm.text || '').slice(0, 140) });
+  }
+  const msgs = rows.map(m => ({
+    id: m.id, from: m.from_user, to: m.to_user, text: m.text, ts: m.ts, read: m.read,
+    replyTo: m.reply_to_id ? (quotedMap.get(m.reply_to_id) || null) : null,
+  }));
   const blockedByMe      = await db('SELECT 1 FROM dm_blocks WHERE blocker ILIKE $1 AND blocked ILIKE $2', [me, partner]);
   const blockedByPartner = await db('SELECT 1 FROM dm_blocks WHERE blocker ILIKE $1 AND blocked ILIKE $2', [partner, me]);
   const partnerVip = isVip(await getUser(partner));
@@ -1978,7 +1872,7 @@ app.post('/api/dm/send', authMiddleware, rateLimit(limiterStrict), async (req, r
   const me = req.user.username;
   const meUser = await getUser(me.toLowerCase());
   if (!meUser || meUser.banned) return res.status(403).json({ error: 'Ваш аккаунт заблокирован' });
-  const { to, text } = req.body;
+  const { to, text, replyTo } = req.body;
   if (!to || !text || !text.trim()) return res.status(400).json({ error: 'Укажите получателя и текст' });
   if (to.toLowerCase() === me.toLowerCase()) return res.status(400).json({ error: 'Нельзя писать самому себе' });
   if (isSystemSender(to)) return res.status(403).json({ error: 'Этому аккаунту нельзя написать' });
@@ -1987,10 +1881,20 @@ app.post('/api/dm/send', authMiddleware, rateLimit(limiterStrict), async (req, r
   if (!toUser) return res.status(404).json({ error: 'Пользователь не найден' });
   const blocked = await db('SELECT 1 FROM dm_blocks WHERE (blocker ILIKE $1 AND blocked ILIKE $2) OR (blocker ILIKE $2 AND blocked ILIKE $1)', [me, to]);
   if (blocked.rows.length > 0) return res.status(403).json({ error: 'Переписка заблокирована' });
+
+  // Ответ на конкретное сообщение (issue #56): проверяем, что цитируемое сообщение
+  // существует и принадлежит этой же переписке.
+  let replyToId = null;
+  if (typeof replyTo === 'string' && replyTo) {
+    const q = await db('SELECT id FROM dm_messages WHERE id = $1 AND ((from_user ILIKE $2 AND to_user ILIKE $3) OR (from_user ILIKE $3 AND to_user ILIKE $2)) LIMIT 1', [replyTo, me.toLowerCase(), to.toLowerCase()]);
+    if (!q.rows[0]) return res.status(400).json({ error: 'Сообщение для ответа не найдено' });
+    replyToId = q.rows[0].id;
+  }
+
   moderation.record({ username: me, channel: 'dm', text, target: to });
   const shadowHidden = !!meUser.shadowBanned;
-  const msg = { id: uuidv4(), from: me, to, text: text.trim(), ts: new Date().toISOString(), read: false };
-  await db('INSERT INTO dm_messages (id, from_user, to_user, text, ts, read, shadow_hidden) VALUES ($1,$2,$3,$4,$5,$6,$7)', [msg.id, msg.from, msg.to, msg.text, msg.ts, msg.read, shadowHidden]);
+  const msg = { id: uuidv4(), from: me, to, text: text.trim(), ts: new Date().toISOString(), read: false, replyTo: replyToId };
+  await db('INSERT INTO dm_messages (id, from_user, to_user, text, ts, read, shadow_hidden, reply_to_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [msg.id, msg.from, msg.to, msg.text, msg.ts, msg.read, shadowHidden, replyToId]);
   // Теневой бан: получателю сообщение НЕ шлём вообще (для него это как будто
   // никогда не отправлялось) — только отправителю, чтобы у него всё выглядело
   // как обычная успешная отправка.
@@ -2021,7 +1925,11 @@ app.post('/api/dm/block', authMiddleware, async (req, res) => {
   const me = req.user.username;
   const { username } = req.body;
   if (!username || username.toLowerCase() === me.toLowerCase()) return res.status(400).json({ error: 'Неверный запрос' });
-  await db('INSERT INTO dm_blocks (blocker, blocked, ts) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [me, username, new Date().toISOString()]);
+  // БАГ (исправлен): в запрос передавалась несуществующая переменная e
+  // (ReferenceError при любой блокировке) — должно быть me. Заодно
+  // new Date().toISOString() -> Date.now(): колонка dm_blocks.ts — BIGINT
+  // (тот же класс бага, что и с createdAt клубов).
+  await db('INSERT INTO dm_blocks (blocker, blocked, ts) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [me, username, Date.now()]);
   res.json({ ok: true });
 });
 
@@ -2259,7 +2167,7 @@ app.get('/api/forum/threads', (req, res) => {
   res.json({ threads: sorted.slice(page * limit, page * limit + limit), total: sorted.length, page, limit });
 });
 
-app.get('/api/forum/threads/:slug', (req, res) => {
+app.get('/api/forum/threads/:slug', async (req, res) => {
   const thread = forumThreads.find(t => t.slug === req.params.slug || t.id === req.params.slug);
   if (!thread) return res.status(404).json({ error: 'Тема не найдена' });
 
@@ -2271,6 +2179,35 @@ app.get('/api/forum/threads/:slug', (req, res) => {
   let allReplies = forumReplies.filter(r => r.threadId === thread.id).sort((a, b) => a.createdAt - b.createdAt);
   const totalReplies = allReplies.length;
   const replies = allReplies.slice(start, end);
+
+  // Реакции ответов (issue #45): одна агрегация на страницу вместо запроса на ответ.
+  // viewerUsername — для подсветки собственной реакции на клиенте.
+  let viewerUsername = null;
+  const authTok946 = getAuthToken(req);
+  if (authTok946) { try { viewerUsername = jwt.verify(authTok946, JWT_SECRET).username.toLowerCase(); } catch {} }
+  if (replies.length) {
+    const ids = replies.map(r => r.id);
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    const params = viewerUsername ? [...ids, viewerUsername] : ids;
+    const rrows = await db(
+      `SELECT reply_id, emoji, COUNT(*) AS cnt${viewerUsername ? ', BOOL_OR(username_low = $' + (ids.length + 1) + ') AS mine' : ''}
+         FROM forum_reply_reactions WHERE reply_id IN (${placeholders})
+         GROUP BY reply_id, emoji`,
+      params
+    ).catch(() => ({ rows: [] }));
+    const byReply = new Map();
+    for (const row of rrows.rows) {
+      if (!byReply.has(row.reply_id)) byReply.set(row.reply_id, { reactions: {}, myReaction: null });
+      const entry = byReply.get(row.reply_id);
+      entry.reactions[row.emoji] = Number(row.cnt);
+      if (row.mine) entry.myReaction = row.emoji;
+    }
+    for (const r of replies) {
+      const e = byReply.get(r.id);
+      r.reactions = e?.reactions || {};
+      r.myReaction = e?.myReaction || null;
+    }
+  }
 
   let viewerKey;
   const authTok945 = getAuthToken(req);
@@ -2374,6 +2311,36 @@ async function handleDeleteForumReply(req, res) {
 }
 app.delete('/api/forum/replies/:id', authMiddleware, handleDeleteForumReply);
 app.post('/api/forum/replies/:id/delete', authMiddleware, handleDeleteForumReply);
+
+
+// Реакции на ответах форума (issue #45): toggle-механика как у комментариев блога.
+// Повторный клик по своему эмодзи снимает реакцию, клик по другому — заменяет.
+const FORUM_REPLY_EMOJIS = ['👍','👎','❤️','😂','😮','♟️'];
+app.post('/api/forum/replies/:id/react', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
+  const user = await getUser(req.user.username.toLowerCase());
+  if (!user || user.banned) return res.status(403).json({ error: 'Нет доступа' });
+  const reply = forumReplies.find(r => r.id === req.params.id);
+  if (!reply) return res.status(404).json({ error: 'Ответ не найден' });
+
+  const { emoji } = req.body;
+  if (!FORUM_REPLY_EMOJIS.includes(emoji)) return res.status(400).json({ error: 'Неверный эмоджи' });
+  const usernameLow = user.username.toLowerCase();
+
+  const existing = await db('SELECT emoji FROM forum_reply_reactions WHERE reply_id=$1 AND username_low=$2', [reply.id, usernameLow]);
+  if (existing.rows[0]?.emoji === emoji) {
+    await db('DELETE FROM forum_reply_reactions WHERE reply_id=$1 AND username_low=$2', [reply.id, usernameLow]);
+  } else if (existing.rows[0]) {
+    await db('UPDATE forum_reply_reactions SET emoji=$1 WHERE reply_id=$2 AND username_low=$3', [emoji, reply.id, usernameLow]);
+  } else {
+    await db('INSERT INTO forum_reply_reactions (reply_id, username_low, emoji, created_at) VALUES ($1,$2,$3,$4)', [reply.id, usernameLow, emoji, Date.now()]);
+  }
+
+  const rr = await db('SELECT emoji, COUNT(*) AS cnt FROM forum_reply_reactions WHERE reply_id=$1 GROUP BY emoji', [reply.id]);
+  const reactions = {};
+  for (const row of rr.rows) reactions[row.emoji] = Number(row.cnt);
+  const mineNow = existing.rows[0]?.emoji === emoji ? null : emoji;
+  res.json({ ok: true, reactions, myReaction: mineNow });
+});
 
 
 app.post('/api/forum/threads', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
@@ -2503,7 +2470,7 @@ app.get('/api/follow/online-friends', authMiddleware, async (req, res) => {
 
 
 app.get('/api/blog', async (req, res) => {
-  const { section, status, sort, page: pQ, limit: lQ } = req.query;
+  const { section, status, sort, q, page: pQ, limit: lQ } = req.query;
   const page  = Math.max(0, parseInt(pQ) || 0);
   const limit = Math.min(50, parseInt(lQ) || 20);
 
@@ -2537,6 +2504,17 @@ app.get('/api/blog', async (req, res) => {
   if (!bypassSection) {
     if (section === 'official')  list = list.filter(p => !p.community);
     if (section === 'community') list = list.filter(p => !!p.community);
+  }
+
+  // Поиск по блогам (issue #51): регистронезависимый поиск по заголовку
+  // и тексту статьи (внутренние объекты blogPosts содержат body).
+  // Пустой/короткий q — фильтр не применяется.
+  const searchQ = typeof q === 'string' ? q.trim().toLowerCase() : '';
+  if (searchQ.length >= 2) {
+    list = list.filter(p =>
+      String(p.title || '').toLowerCase().includes(searchQ) ||
+      String(p.body || '').toLowerCase().includes(searchQ)
+    );
   }
 
   // Раньше опубликованные статьи всегда сортировались только по
@@ -2840,11 +2818,17 @@ app.post('/api/blog/:id/comments/:cid/react', blogAuthMiddleware, rateLimit(limi
   const r = await db('SELECT id,deleted FROM blog_comments WHERE id=$1 AND post_id=$2',[req.params.cid,req.params.id]);
   if (!r.rows[0] || r.rows[0].deleted) return res.status(404).json({ error: 'Комментарий не найден' });
 
-  const ALLOWED_EMOJIS = ['👍','❤️','😂','😮','😢','😡','♟️'];
+  const ALLOWED_EMOJIS = ['👍','❤️','😂','😮','😢','😡','♟️','👎'];
   const { emoji } = req.body;
   if (!emoji) {
     await db('DELETE FROM blog_comment_reactions WHERE comment_id=$1 AND user_id=$2',[req.params.cid,user.username.toLowerCase()]);
-    return res.json({ ok: true, removed: true });
+    // Баг #40: раньше ветка удаления НЕ возвращала карту реакций — клиент
+    // перезаписывал c.reactions пустым объектом и до F5 исчезали ВСЕ чужие
+    // эмодзи у комментария. Возвращаем актуальную карту после DELETE.
+    const rr = await db('SELECT emoji, COUNT(*) as cnt FROM blog_comment_reactions WHERE comment_id=$1 GROUP BY emoji',[req.params.cid]);
+    const reactions = {};
+    for (const row of rr.rows) reactions[row.emoji] = Number(row.cnt);
+    return res.json({ ok: true, removed: true, reactions, myReaction: null });
   }
   if (!ALLOWED_EMOJIS.includes(emoji)) return res.status(400).json({ error: 'Неверный эмоджи' });
 
@@ -3215,6 +3199,18 @@ app.post('/api/upload', newsAuthMiddleware, rateLimit(limiterStrict), (req, res)
   uploadImage.single('file')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Не удалось загрузить файл' });
     if (!req.file) return res.status(400).json({ error: 'Файл не передан' });
+    // Безопасность (issue H3): mimetype приходит от клиента и полностью
+    // контролируется им. Проверяем magic bytes фактического содержимого:
+    // подделка image/jpeg для shell.html отсеется здесь (файл удалён).
+    const fd = fs.openSync(req.file.path, 'r');
+    const buf = Buffer.alloc(16);
+    let read = 0;
+    try { read = fs.readSync(fd, buf, 0, 16, 0); } finally { fs.closeSync(fd); }
+    const sniffed = sniffImageMime(buf.subarray(0, read));
+    if (!sniffed) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'Файл не является изображением' });
+    }
     res.json({ url: '/uploads/' + req.file.filename });
   });
 });
@@ -3257,7 +3253,9 @@ app.post('/api/clubs', authMiddleware, rateLimit(limiterStrict), async (req, res
   if (memberOf >= 10) return res.status(400).json({ error: 'Вы уже состоите в 10 клубах (максимум)' });
   if (clubs.find(c => c.name.toLowerCase() === trimmedName.toLowerCase())) return res.status(400).json({ error: 'Клуб с таким названием уже существует' });
   const id = uuidv4();
-  const club = { id, name: trimmedName, description: (description || '').toString().trim().slice(0, 500), createdAt: new Date().toISOString(), createdBy: me.username, admins: [me.username], members: [me.username], memberCount: 1, official: false };
+  // БАГ (исправлен): createdAt был new Date().toISOString() — строка в BIGINT-колонку
+  // clubs.created_at (invalid input syntax for type bigint). Теперь числовой таймстемп.
+  const club = { id, name: trimmedName, description: (description || '').toString().trim().slice(0, 500), createdAt: Date.now(), createdBy: me.username, admins: [me.username], members: [me.username], memberCount: 1, official: false };
   clubs.push(club);
   await saveClub(club);
   res.json(club);
@@ -3332,13 +3330,17 @@ app.post('/api/user/profile', authMiddleware, async (req, res) => {
     if (bio != null && typeof bio !== 'string') return res.status(400).json({ error: 'Неверное описание' });
     bio = cleanBio(bio || '').slice(0, 400);
 
+    // БАГ (исправлен): раньше проверка Number.isFinite выполнялась ДО
+    // нормализации пустой строки — стертое в поле значение ("") отбивалось
+    // ошибкой 400, и очистить рейтинг было невозможно. Теперь сначала
+    // нормализуем "" -> null, затем валидируем оставшиеся значения.
+    fshrRating = (fshrRating === '' || fshrRating === undefined) ? null : fshrRating;
+    fideRating = (fideRating === '' || fideRating === undefined) ? null : fideRating;
     for (const [label, val] of [['ФШР', fshrRating], ['FIDE', fideRating]]) {
       if (val !== null && val !== undefined && (!Number.isFinite(val) || val < 0 || val > 4000)) {
         return res.status(400).json({ error: `Рейтинг ${label} должен быть числом от 0 до 4000` });
       }
     }
-    fshrRating = (fshrRating === '' || fshrRating === undefined) ? null : fshrRating;
-    fideRating = (fideRating === '' || fideRating === undefined) ? null : fideRating;
 
     const user = await getUser(req.user.username.toLowerCase());
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -3696,10 +3698,23 @@ app.post('/api/durka/add-tournament', durkaKeyMiddleware, async (req, res) => {
 
 app.get('/api/puzzles/daily', async (req, res) => {
   try {
-    const r = await db('SELECT * FROM puzzles ORDER BY created_at ASC');
+    // Full scan (БАГ производительности исправлен): раньше на КАЖДЫЙ запрос
+    // читались ВСЕ задачи (SELECT * FROM puzzles). Выбор детерминирован датой,
+    // поэтому считаем его раз в сутки и кэшируем в памяти.
+    const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+    if (dailyPuzzleCache.day === dayIndex && dailyPuzzleCache.payload) {
+      return res.json(dailyPuzzleCache.payload);
+    }
+    const cnt = await db('SELECT COUNT(*) AS n FROM puzzles');
+    const total = parseInt(cnt.rows[0].n);
+    if (!total) return res.json(null);
+    const idx = dayIndex % total;
+    const r = await db('SELECT id, title, description, fen, topic, difficulty FROM puzzles ORDER BY created_at ASC LIMIT 1 OFFSET $1', [idx]);
     if (!r.rows.length) return res.json(null);
-    const puzzle = r.rows[Math.floor(Date.now()/(24*60*60*1000)) % r.rows.length];
-    res.json({ id:puzzle.id, title:puzzle.title, description:puzzle.description, fen:puzzle.fen, topic:puzzle.topic, difficulty:puzzle.difficulty });
+    const puzzle = r.rows[0];
+    const payload = { id: puzzle.id, title: puzzle.title, description: puzzle.description, fen: puzzle.fen, topic: puzzle.topic, difficulty: puzzle.difficulty };
+    dailyPuzzleCache = { day: dayIndex, payload };
+    res.json(payload);
   } catch(e) { res.status(500).json({ error: 'Ошибка' }); }
 });
 
@@ -3733,7 +3748,6 @@ app.get('/api/puzzles', async (req, res) => {
       sql = `
         SELECT p.*,
           pa.correct  AS _correct,
-          pa.failed   AS _failed,
           CASE
             WHEN pa.id IS NULL        THEN 0
             WHEN pa.correct = false   THEN 1
@@ -3802,8 +3816,11 @@ app.post('/api/puzzles/:id/move', authMiddleware, rateLimit(limiterStrict), asyn
 
     const expectedRaw = playerMoves[moveIndex];
     if (!expectedRaw) return res.status(400).json({ error: 'Некорректный moveIndex' });
-    const playerMove    = (move || '').toLowerCase().trim();
-    const acceptedMoves = expectedRaw.split('|').map(m => m.trim());
+    // Клиент присылает чистый UCI без символов шаха/мата ("a2a8"), а в
+    // решениях они могут быть ("a2a8#") — сравниваем нормализованно.
+    const stripAnno = (v) => v.replace(/[+#!?]/g, '');
+    const playerMove    = stripAnno((move || '').toLowerCase().trim());
+    const acceptedMoves = expectedRaw.split('|').map(m => stripAnno(m.trim().toLowerCase()));
     let correct = acceptedMoves.includes(playerMove)
       || acceptedMoves.some(m => m.length===4 && playerMove.startsWith(m))
       || acceptedMoves.some(m => m.length===5 && m.endsWith('q') && playerMove===m.slice(0,4));
@@ -3817,30 +3834,33 @@ app.post('/api/puzzles/:id/move', authMiddleware, rateLimit(limiterStrict), asyn
 
 app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
   try {
-    const { correct: clientCorrect, moves } = req.body;
+    const { moves } = req.body;
 
     const r = await db('SELECT * FROM puzzles WHERE id=$1', [req.params.id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Задача не найдена' });
     const puzzle = r.rows[0];
 
-    let correct;
-    if (typeof clientCorrect === 'boolean') {
-      correct = clientCorrect;
-    } else if (Array.isArray(moves)) {
-      const { playerMoves } = parsePuzzleSolution(puzzle.solution);
-      const userPlayerMoves = moves.filter((_, i) => i % 2 === 0);
-      correct = playerMoves.length > 0 &&
-        userPlayerMoves.length === playerMoves.length &&
-        playerMoves.every((m, i) => {
-          const variants = m.split('|').map(v => v.trim());
-          const played   = (userPlayerMoves[i] || '').toLowerCase().trim();
-          return variants.includes(played)
-            || variants.some(v => v.length===4 && played.startsWith(v))
-            || variants.some(v => v.length===5 && v.endsWith('q') && played===v.slice(0,4));
-        });
-    } else {
-      return res.status(400).json({ error: 'Укажите correct или moves' });
+    // Накрутка рейтинга (issue M3): раньше тело запроса с { correct: true }
+    // засчитывало решение БЕЗ каких-либо ходов — скрипт рассылал correct:true
+    // по всем задачам и получал +15 к рейтингу за каждую. Теперь корректность
+    // определяется ТОЛЬКО серверной проверкой присланных ходов.
+    if (!Array.isArray(moves) || moves.length === 0) {
+      return res.status(400).json({ error: 'Не указаны ходы решения' });
     }
+    const { playerMoves } = parsePuzzleSolution(puzzle.solution);
+    const userPlayerMoves = moves.filter((_, i) => i % 2 === 0);
+    const correct = playerMoves.length > 0 &&
+      userPlayerMoves.length === playerMoves.length &&
+      playerMoves.every((m, i) => {
+        // Нормализация шах/мат-аннотаций: клиент шлёт чистый UCI ("a2a8"),
+        // в решениях может быть "a2a8#".
+        const stripAnno = (v) => v.replace(/[+#!?]/g, '');
+        const variants = m.split('|').map(v => stripAnno(v.trim().toLowerCase()));
+        const played   = stripAnno((userPlayerMoves[i] || '').toLowerCase().trim());
+        return variants.includes(played)
+          || variants.some(v => v.length===4 && played.startsWith(v))
+          || variants.some(v => v.length===5 && v.endsWith('q') && played===v.slice(0,4));
+      });
 
     const user = await getUser(req.user.username.toLowerCase());
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -3852,14 +3872,25 @@ app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), a
       await db(`INSERT INTO puzzle_attempts (id,user_id,puzzle_id,correct,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id,puzzle_id) DO UPDATE SET correct=$4,created_at=$5`, [uuidv4(), user.id, puzzle.id, correct, Date.now()]);
       await db('UPDATE puzzles SET play_count=play_count+1 WHERE id=$1', [puzzle.id]);
       if (correct) await db('UPDATE puzzles SET correct_count=correct_count+1 WHERE id=$1', [puzzle.id]);
+      // Атомарные инкременты (гонка данных): раньше read-modify-write через
+      // user-объект терял обновления при параллельных запросах.
       const ratingDelta = correct ? 15 : -10;
-      const newRating    = Math.max(100, (user.puzzle_rating || 1200) + ratingDelta);
-      const newSolved    = (user.puzzle_solved || 0) + (correct ? 1 : 0);
-      const newAttempted = (user.puzzle_attempted || 0) + 1;
-      await db('UPDATE users SET puzzle_rating=$1,puzzle_solved=$2,puzzle_attempted=$3 WHERE id=$4', [newRating, newSolved, newAttempted, user.id]);
-      user.puzzle_rating = newRating; user.puzzle_solved = newSolved; user.puzzle_attempted = newAttempted;
-      cacheUser(user);
-      return res.json({ correct, solution: puzzle.solution, ratingDelta, newPuzzleRating: newRating, alreadySolved: false });
+      const upd = await db(
+        `UPDATE users SET
+           puzzle_rating  = GREATEST(100, COALESCE(puzzle_rating, 1200) + $1),
+           puzzle_solved  = COALESCE(puzzle_solved, 0) + $2,
+           puzzle_attempted = COALESCE(puzzle_attempted, 0) + 1
+         WHERE id = $3
+         RETURNING puzzle_rating, puzzle_solved, puzzle_attempted`,
+        [ratingDelta, correct ? 1 : 0, user.id]
+      );
+      if (upd.rows[0]) {
+        user.puzzle_rating = upd.rows[0].puzzle_rating;
+        user.puzzle_solved = upd.rows[0].puzzle_solved;
+        user.puzzle_attempted = upd.rows[0].puzzle_attempted;
+        cacheUser(user);
+      }
+      return res.json({ correct, solution: puzzle.solution, ratingDelta, newPuzzleRating: upd.rows[0]?.puzzle_rating ?? user.puzzle_rating ?? 1200, alreadySolved: false });
     }
     res.json({ correct: true, solution: puzzle.solution, ratingDelta: 0, newPuzzleRating: user.puzzle_rating || 1200, alreadySolved: true });
   } catch(e) { console.error('[Puzzle attempt]', e.message); res.status(500).json({ error: 'Ошибка' }); }
@@ -4248,6 +4279,12 @@ app.post('/api/admin/dev-diary-comment-ban', authMiddleware, async (req, res) =>
 
 app.get('/game/:gameId', async (req, res) => {
   const gameId = req.params.gameId;
+  // Безопасность (issue L2/C3): формат id проверяем жёстко — параметр URL попадал
+  // в inline <script> без экранирования, и %22+alert(1)+%22 исполнялся.
+  // Строгий whitelist uuid снимает вектор целиком (в т.ч. до похода в БД).
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(gameId)) {
+    return res.status(404).send('Игра не найдена');
+  }
   // Получаем данные игры через API (переиспользуем логику)
   let game = activeGames.get(gameId);
   if (!game) {
@@ -4278,15 +4315,27 @@ app.get('/game/:gameId', async (req, res) => {
     }
   }
 
-  // Простая страница просмотра партии
-  const movesJson = JSON.stringify(game.moves || []);
+  // Безопасность (issue C3): JSON.stringify НЕ экранирует <, поэтому строка
+  // вида "</script><img src=x onerror=...>" внутри значения (promotion — теперь
+  // whitelist'ится в make_move, но tournamentName — свободный текст) разрывала
+  // inline <script>. Экранируем HTML-опасные символы и разделители строк JSON.
+  const jsonForInline = (v) => JSON.stringify(v)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  const movesJson = jsonForInline(game.moves || []);
+  const titleWhite = escapeHtml(game.white);
+  const titleBlack = escapeHtml(game.black);
+  const reasonSafe = escapeHtml(game.reason);
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Партия · ${game.white} vs ${game.black}</title>
+      <title>Партия · ${titleWhite} vs ${titleBlack}</title>
       <link href="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboard2@0.5.0/dist/chessboard2.min.css" rel="stylesheet">
       <style>
         body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
@@ -4312,7 +4361,7 @@ app.get('/game/:gameId', async (req, res) => {
         </div>
         <div style="text-align:center; margin-bottom:12px">
           <span class="result">${formatGameResult(game.result, game.white, game.black)}</span>
-          ${game.reason ? `<span style="margin-left:12px;color:#aaa">(${game.reason})</span>` : ''}
+          ${game.reason ? `<span style="margin-left:12px;color:#aaa">(${reasonSafe})</span>` : ''}
         </div>
         <div id="board"></div>
         <div class="controls">
@@ -4323,16 +4372,16 @@ app.get('/game/:gameId', async (req, res) => {
         <div class="move-list" id="moveList"></div>
       </div>
 
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+      <script src="/js/vendor/chess.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboard2@0.5.0/dist/chessboard2.min.js"></script>
       <script>
         const moves = ${movesJson};
-        const gameId = "${gameId}";
-        const gameWhite = ${JSON.stringify(game.white)};
-        const gameBlack = ${JSON.stringify(game.black)};
-        const gameResult = ${JSON.stringify(game.result || null)};
-        const gameEndedAt = ${JSON.stringify(game.endedAt || null)};
-        const gameTournamentName = ${JSON.stringify(game.tournamentName || null)};
+        const gameId = ${jsonForInline(gameId)};
+        const gameWhite = ${jsonForInline(game.white)};
+        const gameBlack = ${jsonForInline(game.black)};
+        const gameResult = ${jsonForInline(game.result || null)};
+        const gameEndedAt = ${jsonForInline(game.endedAt || null)};
+        const gameTournamentName = ${jsonForInline(game.tournamentName || null)};
         const boardEl = document.getElementById('board');
         let currentIndex = 0;
         let gameState = new Chess();
@@ -4344,7 +4393,7 @@ app.get('/game/:gameId', async (req, res) => {
             const from = numberToAlgebraic(mv.from);
             const to = numberToAlgebraic(mv.to);
             const promotion = mv.promotion ? mv.promotion.toLowerCase() : undefined;
-            gameState.move({ from, to, promotion });
+            try { gameState.move({ from, to, promotion }); } catch (e) { /* пропускаем битые записи */ }
           }
           if (board) { try { board.position(gameState.fen()); } catch(e) {} }
         }
@@ -4401,7 +4450,7 @@ app.get('/game/:gameId', async (req, res) => {
             const from = numberToAlgebraic(mv.from);
             const to = numberToAlgebraic(mv.to);
             const promotion = mv.promotion ? mv.promotion.toLowerCase() : undefined;
-            pgnGame.move({ from, to, promotion });
+            try { pgnGame.move({ from, to, promotion }); } catch (e) { /* пропускаем битые записи */ }
           }
           let pgn = '';
           for (const [key, value] of Object.entries(headers)) {
