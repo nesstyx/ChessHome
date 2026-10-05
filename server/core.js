@@ -95,6 +95,9 @@ const pendingPasswordChanges = new Map();
 
 const pendingDeletions = new Map();
 
+// Привязка email к аккаунту (issue #50): код подтверждения привязки почты.
+const pendingEmailLinks = new Map();
+
 // 2FA: код входа, отправленный на почту, ждёт подтверждения перед выдачей jwt.
 const pendingLogins = new Map();
 
@@ -333,7 +336,10 @@ class RateLimiter {
 
 const limiterGeneral   = new RateLimiter(60_000,  10000);
 
-const limiterAuth      = new RateLimiter(60_000,    1000);
+// Брутфорс (issue H2): было 1000/мин на IP (~17 паролей/сек). В связке с
+// проверкой loginFailStreak в /api/login — 20/мин достаточно для людей,
+// но делает онлайн-перебор паролей бессмысленным.
+const limiterAuth      = new RateLimiter(60_000,    20);
 
 const limiterStrict    = new RateLimiter(60_000,    900);
 
@@ -446,8 +452,9 @@ function rowToUser(row) {
 // isVip() везде начинает возвращать false сам по себе.
 function isVip(u) { return !!(u && u.vipUntil && u.vipUntil > Date.now()); }
 
-// Выдавать/снимать значок могут только эти два аккаунта (см. запрос владельца).
-function isVipGranter(username) { return ['chesshome', 'marina64'].includes((username || '').toLowerCase()); }
+// Выдавать/снимать VIP-значок могут сайт-админы (роль 'admin' в БД или
+// legacy-ники bootstrap — см. isSiteAdmin).
+function isVipGranter(username) { return isSiteAdmin(username); }
 
 
 // ── Значки в профиле (сезоны и т.п.) ─────────────────────────
@@ -478,7 +485,9 @@ async function getUser(usernameLow) {
 
 
 async function saveUser(u) {
-  cacheUser(u);
+  // Рассинхронизация (БАГ исправлен): раньше cacheUser(u) вызывался ДО записи в БД —
+  // при ошибке запроса кэш оставался с новыми данными, а БД со старыми, вплоть
+  // до рестарта сервера. Теперь кэш обновляется только после успешной записи.
   await db(`
     INSERT INTO users (id, username, username_low, email, password_hash, rating,
       games_played, wins, losses, draws, avatar, role, banned, ban_reason,
@@ -685,8 +694,17 @@ async function deleteClubChatMsgsByUser(clubId, usernameLow) {
   } catch (e) { console.error('[deleteClubChatMsgsByUser] error:', e.message); }
 }
 
+// Сайт-админ: источник истины — роль 'admin' в БД (users.role). Она:
+//  1) подтверждается на старте для legacy-ников bootstrap (см. main()),
+//  2) выдаётся/снимается через POST /api/admin/role (issue #27).
+// Legacy-ники ['chesshome','marina64'] — fallback на холодный старт,
+// пока пользователь ещё не загружен в usersCache.
 function isSiteAdmin(username) {
-  return username && ['chesshome','marina64'].includes(username.toLowerCase());
+  if (!username) return false;
+  const low = String(username).toLowerCase();
+  const u = usersCache.get(low);
+  if (u) return u.role === 'admin';
+  return ['chesshome', 'marina64'].includes(low);
 }
 
 function isClubModerator(club, username) {
@@ -1021,17 +1039,37 @@ async function loadNewsAuthors() {
 const server = http.createServer(app);
 
 const io     = new Server(server, {
-  cors: { origin: '*', methods: ['GET','POST','DELETE','PATCH'] },
+  // Безопасность (issue M6): раньше origin: '*' — любой сайт мог подключать
+  // сокет от имени посетителя и свободно читать API. При самом запросе сокет
+  // не отправляет cookies сторонним origin (sameSite=lax), но открытый
+  // '*' всё равно расширяет поверхность. Разрешаем только собственный домен.
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin || origin === SITE_URL) return cb(null, true);
+      return cb(null, false);
+    },
+    methods: ['GET','POST','DELETE','PATCH'],
+    credentials: true,
+  },
   // perMessageDeflate жмёт каждый пакет на CPU отправителя и получателя.
   // На 1 ядре с частыми событиями (тиканье часов раз в секунду и т.п.)
   // это ощутимая CPU-нагрузка ради экономии небольшого трафика — отключаем.
   perMessageDeflate: false,
+  // Безопасность (issue M9): дефолтный лимит полезной нагрузки 1MB на
+  // сообщение при щедрых rate-limit'ах — вектор на исчерпание памяти/CPU.
+  // Легитимные события (ходы, чат, вызовы) — сотни байт, 64KB с запасом.
+  maxHttpBufferSize: 64 * 1024,
 });
 
 
 const PORT       = process.env.PORT || 10000;
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Базовый URL сайта: используется для whitelist CORS/Socket.IO origin.
+// (Раньше переменная использовалась только донатами ЮKassa — теперь это общая
+// конфигурация сайта; в .env её указывать не обязательно.)
+const SITE_URL   = process.env.SITE_URL || 'https://chesshome.pro';
 
 const RESERVED   = ['chesshome', 'admin', 'moderator', 'system', 'система'];
 
@@ -1099,15 +1137,10 @@ function ipBanMiddleware(req, res, next) {
       return res.status(403).json({ error: 'Это устройство заблокировано. Создание новых аккаунтов запрещено.' });
   }
 
-  const token = getAuthToken(req);
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      getUser(decoded.username.toLowerCase()).then(user => {
-        if (user && user.banned) { }
-      }).catch(() => {});
-    } catch (e) {}
-  }
+  // Мёртвый код удалён: раньше здесь JWT верифицировался, юзер грузился из БД
+  // (ход в кэш/БД на КАЖДЫЙ запрос!), а тело проверки было пустым
+  // if (user && user.banned) { } — ноускоп. Бан проверяется глобально
+  // в authMiddleware на защищённых роутах (getUser + banned).
   next();
 }
 
@@ -1189,12 +1222,39 @@ function rateLimit(limiter, message = 'Слишком много запросо�
 app.use((req, res, next) => {
   res.set('X-Frame-Options', 'SAMEORIGIN');
   res.set('X-Content-Type-Options', 'nosniff');
-  res.set('X-XSS-Protection', '1; mode=block');
   res.set('Referrer-Policy', 'same-origin');
+  // CSP (issue M10): раньше заголовка не было вообще, при этом значительная часть
+  // фронтенда собирается через innerHTML — CSP служит последней линией обороны
+  // от XSS (см. фиксы валидации promotion/gameId). Источники подобраны по факту:
+  // jsdelivr (marked/purify), Google Fonts, Яндекс.Метрика; инлайн-скрипты —
+  // 'unsafe-inline', пока страницы рендерят server-side <script> с данными партии.
+  res.set('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://mc.yandex.ru; " +
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; " +
+    "font-src 'self' data: https://fonts.gstatic.com; " +
+    "img-src 'self' data: blob: https:; " +
+    "connect-src 'self' wss: ws: https://mc.yandex.ru; " +
+    "worker-src 'self' blob:; " +
+    "frame-ancestors 'self'; " +
+    "base-uri 'self'; form-action 'self'");
+  res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   next();
 });
 
-app.use(cors());
+// CORS (issue M6): раньше app.use(cors()) открывал API всем origin. Сайтовый
+// фронтенд live на том же домене (кулбы за same-origin), поэтому достаточно
+// разрешить собственный домен (+ не-браузерные клиенты без Origin). Кросс-
+// доменные запросы всё равно не несли cookies (sameSite=lax) — теперь и читаемость
+// API извне закрыта.
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || origin === SITE_URL) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true,
+}));
 
 app.use(compression());
 
@@ -1290,29 +1350,13 @@ const LICHESS_TOKEN = process.env.LICHESS_API_TOKEN;
 
 
 
-// ── ЮKassa Донаты ─────────────────────────────────────────────
-const YUKASSA_SHOP_ID      = process.env.YUKASSA_SHOP_ID;
-
-const YUKASSA_SECRET_KEY   = process.env.YUKASSA_SECRET_KEY;
-
-const SITE_URL             = process.env.SITE_URL || 'https://chesshome.pro';
-
-
-// Таблица платежей (создаётся в main)
-async function initDonateTable() {
-  await db(`
-    CREATE TABLE IF NOT EXISTS donations (
-      id            TEXT PRIMARY KEY,
-      username      TEXT,
-      amount        NUMERIC(10,2) NOT NULL,
-      currency      TEXT NOT NULL DEFAULT 'RUB',
-      message       TEXT,
-      status        TEXT NOT NULL DEFAULT 'pending',
-      payment_id    TEXT,
-      created_at    BIGINT NOT NULL
-    )
-  `);
-}
+// ── ЮKassa — мёртвый код УДАЛЁН ──────────────────────────────
+// Платежи вырезаны из продукта (хедер ведёт на CloudTips, donate.html не
+// существует, фронтенд не вызывает ни один /api/donate/* роут). Удалены:
+// константы YUKASSA_SHOP_ID/YUKASSA_SECRET_KEY, таблица donations
+// (initDonateTable) и все роуты /api/donate/* в routes.js.
+// SITE_URL теперь объявлен вверху файла рядом с PORT/JWT_SECRET — он
+// используется whitelist'ом CORS/Socket.IO.
 
 
 // Раньше не было выделенного лимита на /login — только общий limiterGeneral
@@ -1555,17 +1599,7 @@ function blogAuthMiddleware(req, res, next) {
   catch { return res.status(401).json({ error: 'Неверный токен' }); }
 }
 
-function blogAdminMiddleware(req, res, next) {
-  const auth = getAuthToken(req);
-  if (!auth) return res.status(401).json({ error: 'Не авторизован' });
-  try { req.blogUser = jwt.verify(auth, JWT_SECRET); }
-  catch { return res.status(401).json({ error: 'Неверный токен' }); }
-  if (!isBlogAdmin(req.blogUser.username)) return res.status(403).json({ error: 'Только администратор' });
-  next();
-}
-
-
-function isBlogAdmin(username) { return username && ['chesshome','marina64'].includes(username.toLowerCase()); }
+function isBlogAdmin(username) { return isSiteAdmin(username); }
 
 
 // Заголовок и текст статьи блога иногда приезжают в base64 (поле encoding:'b64') —
@@ -1605,6 +1639,15 @@ db(`CREATE INDEX IF NOT EXISTS idx_blog_comments_post ON blog_comments(post_id, 
 
 db(`CREATE TABLE IF NOT EXISTS blog_comment_reactions (comment_id TEXT NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL, PRIMARY KEY (comment_id, user_id))`).catch(e => console.error('[Blog] blog_comment_reactions init:', e.message));
 
+// Реакции на ответах форума (issue #45)
+db(`CREATE TABLE IF NOT EXISTS forum_reply_reactions (reply_id TEXT NOT NULL, username_low TEXT NOT NULL, emoji TEXT NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (reply_id, username_low))`).catch(e => console.error('[Forum] forum_reply_reactions init:', e.message));
+db(`CREATE INDEX IF NOT EXISTS idx_forum_reply_reactions_reply ON forum_reply_reactions(reply_id)`).catch(() => {});
+
+// Ответы на личные сообщения (issue #56): колонка reply_to_id в dm_messages.
+// Таблица dm_messages создаётся прод-миграцией, поэтому при её отсутствии
+// ALTER молча пропускается (фича ЛС при этом всё равно недоступна).
+db(`ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS reply_to_id TEXT`).catch(() => {});
+
 db(`CREATE TABLE IF NOT EXISTS blog_comment_bans (post_id TEXT NOT NULL, username TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'mute', until BIGINT, created_at BIGINT NOT NULL, PRIMARY KEY (post_id, username))`).catch(e => console.error('[Blog] blog_comment_bans init:', e.message));
 
 db(`CREATE TABLE IF NOT EXISTS blog_global_comment_bans (username TEXT PRIMARY KEY, type TEXT NOT NULL DEFAULT 'mute', until BIGINT, created_at BIGINT NOT NULL)`).catch(e => console.error('[Blog] blog_global_comment_bans init:', e.message));
@@ -1636,7 +1679,7 @@ async function handleDeleteBlogPost(req, res) {
 // ══════════════════════════════════════════════════════════════
 
 function isBlogCommentAdmin(username) {
-  return username && ['chesshome','marina64'].includes(username.toLowerCase());
+  return isSiteAdmin(username);
 }
 
 
@@ -1796,14 +1839,37 @@ try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) { console.erro
 const uploadStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
-    const ext = (path.extname(file.originalname) || '').toLowerCase().replace(/[^a-z0-9.]/g,'').slice(0,10);
-    cb(null, `${Date.now()}_${uuidv4()}${ext}`);
+    // Безопасность (issue H3): расширение НЕ берём из оригинального имени файла
+    // (клиентский контроль) — выводим его из проверенного mimetype. Так
+    // shell.html с mimetype=image/jpeg не сохранится как .html: получит .jpg.
+    const extByMime = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
+    cb(null, `${Date.now()}_${uuidv4()}${extByMime[file.mimetype] || '.bin'}`);
   },
 });
 
+// Magic bytes реальных изображений — проверка содержимого, а не декларации клиента.
+const IMAGE_MAGIC = [
+  { mime: 'image/jpeg', bytes: [0xFF, 0xD8, 0xFF] },
+  { mime: 'image/png',  bytes: [0x89, 0x50, 0x4E, 0x47] },
+  { mime: 'image/gif',  bytes: [0x47, 0x49, 0x46, 0x38] },
+  { mime: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF....WEBP — первые 4 байта + проверка 8-11
+];
+function sniffImageMime(buf) {
+  for (const sig of IMAGE_MAGIC) {
+    if (sig.bytes.every((b, i) => buf[i] === b)) {
+      if (sig.mime === 'image/webp') {
+        // Доп. проверка строки WEBP на смещении 8
+        return buf.length >= 12 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50 ? sig.mime : null;
+      }
+      return sig.mime;
+    }
+  }
+  return null;
+}
+
 const uploadImage = multer({
   storage: uploadStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 10 },
   fileFilter: (req, file, cb) => {
     if (!/^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)) return cb(new Error('Разрешены только изображения (jpeg, png, gif, webp)'));
     cb(null, true);
@@ -2029,7 +2095,11 @@ async function authMiddleware(req, res, next) {
   req.user = decoded;
   try {
     const u = await getUser(String(decoded.username || '').toLowerCase());
-    if (u && u.banned) {
+    // БАГ (исправлен): при удалённом/несуществующем аккаунте (!u) запрос
+    // проходил дальше как «авторизованный» — JWT жил до 7 дней после удаления.
+    // Теперь — явный 401.
+    if (!u) return res.status(401).json({ error: 'Аккаунт не найден' });
+    if (u.banned) {
       const p = String(req.originalUrl || req.url || '').split('?')[0];
       if (!BANNED_ALLOWED_PATHS.some(rx => rx.test(p))) {
         return res.status(403).json({ error: 'Аккаунт заблокирован' + (u.banReason ? ': ' + u.banReason : '') });
@@ -2052,8 +2122,9 @@ async function requireAdmin(req, res, cb) {
 }
 
 
-// Отдельная проверка для VIP-значка: не завязана на общую роль admin,
-// пускает только chesshome и Marina64 (см. isVipGranter выше).
+// VIP-проверка завязана на сайт-админов (см. isVipGranter выше):
+// роль 'admin' в БД либо legacy-ники bootstrap. Роль выдаётся через
+// POST /api/admin/role (issue #27).
 async function requireVipGranter(req, res, cb) {
   try {
     const me = await getUser(req.user.username.toLowerCase());
@@ -2170,6 +2241,10 @@ function hasFullMove(game) {
 
 
 async function endGameAuthoritative(gameId, game, result, reason) {
+  // Защита от повторного входа: гонка тика часов (раз в секунду) и ручного
+  // game_over/resign одного из игроков могла завершить партию дважды.
+  if (game._finishing) return;
+  game._finishing = true;
   if (!activeGames.has(gameId) && !tournamentGames.has(gameId)) return; // уже завершена
   activeGames.delete(gameId);
   tournamentGames.delete(gameId);
@@ -2202,11 +2277,27 @@ setInterval(() => {
 function findSocketByUsername(username) {
   // Было: линейный перебор всей карты sessions на каждый вызов (O(n)).
   // Стало: прямой доступ по индексу usernameToSocketId (O(1)).
-  const id = usernameToSocketId.get(username.toLowerCase());
-  if (!id) return null;
-  const sock = io.sockets.sockets.get(id);
-  if (!sock) { usernameToSocketId.delete(username.toLowerCase()); return null; }
-  return sock;
+  //
+  // Multi-socket: у юзера может быть несколько легитимных сокетов одновременно
+  // (основной app.js + DM-сокет header.js). Возвращаем fanout-эмиттер: emit()
+  // доставляет событие ВСЕМ сокетам юзера, disconnect() отключает все. Все
+  // существующие вызовы вида s?.emit(...) / if (sock) sock.emit(...) работают
+  // без изменений — но больше не зависят от того, какой из сокетов юзера
+  // «победил» в гонке регистрации (раньше события молча терялись — issue #52).
+  const low = String(username).toLowerCase();
+  const ids = usernameToSocketId.get(low);
+  if (!ids || ids.size === 0) return null;
+  const sockets = [];
+  for (const id of ids) {
+    const s = io.sockets.sockets.get(id);
+    if (s) sockets.push(s);
+  }
+  if (!sockets.length) { usernameToSocketId.delete(low); return null; }
+  return {
+    emit(event, ...args) { for (const s of sockets) s.emit(event, ...args); },
+    disconnect()         { for (const s of sockets) s.disconnect(true); },
+    get size()           { return sockets.length; },
+  };
 }
 
 
@@ -2215,9 +2306,15 @@ function findSocketByUsername(username) {
 // вынесено в одну функцию, чтобы гарантировать: эти сокет-события
 // НИКОГДА не попадают обычным пользователям (утечка в Network).
 async function emitToAdmins(event, payload) {
+  // Multi-socket: у одного админа может быть несколько сокетов/сессий —
+  // дедуплицируем по нику, чтобы каждый админ получил событие один раз.
+  const seen = new Set();
   for (const [, sess] of sessions.entries()) {
-    const u = usersCache.get(sess.username.toLowerCase());
+    const low = sess.username.toLowerCase();
+    if (seen.has(low)) continue;
+    const u = usersCache.get(low);
     if (u?.role !== 'admin') continue;
+    seen.add(low);
     const sock = findSocketByUsername(sess.username);
     if (sock) sock.emit(event, payload);
   }
@@ -2269,21 +2366,56 @@ async function calcNewRatings(wRating, bRating, result) {
 
 
 async function updateStats(white, black, result, rated = true) {
-  const w = await getUser(white.toLowerCase());
-  const b = await getUser(black.toLowerCase());
-  if (!w || !b) return;
-  w.gamesPlayed++; b.gamesPlayed++;
-  if (result === 'white')      { w.wins++; b.losses++; }
-  else if (result === 'black') { b.wins++; w.losses++; }
-  else                         { w.draws++; b.draws++; }
-  // Товарищеская партия: счётчики побед/поражений/партий обновляются как
-  // обычно, но сам рейтинг (Elo) не пересчитывается.
-  if (rated) {
-    const { white: newW, black: newB } = await calcNewRatings(w.rating, b.rating, result);
-    w.rating = Math.max(100, newW);
-    b.rating = Math.max(100, newB);
+  // Гонка данных (БАГ исправлен): раньше статистика обновлялась read-modify-write
+  // по объектам из кэша + saveUser (whole-row upsert). Два одновременных финала
+  // партий с общим игроком теряли инкременты и/или считали Elo от промежуточных
+  // значений. Теперь: транзакция + SELECT ... FOR UPDATE блокирует строки обоих
+  // игроков, инкременты выполняются одним атомарным UPDATE, и кэш синхронизируется
+  // из фактических значений БД (шаблон — как в квестах /api/quests/complete).
+  const wLow = white.toLowerCase(), bLow = black.toLowerCase();
+  if (wLow === bLow) return; // сам с собой — не бывает, но защита от деления на ноль в Elo
+  try {
+    const finalW = await withTransaction(async (client) => {
+      const r = await client.query(
+        `SELECT id, username, username_low, rating, games_played, wins, losses, draws
+           FROM users WHERE username_low IN ($1, $2) ORDER BY username_low FOR UPDATE`,
+        [wLow, bLow]
+      );
+      if (r.rows.length < 2) return null;
+      const rowW = r.rows.find(x => x.username_low === wLow);
+      const rowB = r.rows.find(x => x.username_low === bLow);
+      if (!rowW || !rowB) return null;
+      let newRatingW = rowW.rating, newRatingB = rowB.rating;
+      if (rated) {
+        const nr = await calcNewRatings(rowW.rating, rowB.rating, result);
+        newRatingW = Math.max(100, nr.white);
+        newRatingB = Math.max(100, nr.black);
+      }
+      const incW = result === 'white' ? 'games_played = games_played + 1, wins = wins + 1' : result === 'black' ? 'games_played = games_played + 1, losses = losses + 1' : 'games_played = games_played + 1, draws = draws + 1';
+      const incB = result === 'white' ? 'games_played = games_played + 1, losses = losses + 1' : result === 'black' ? 'games_played = games_played + 1, wins = wins + 1' : 'games_played = games_played + 1, draws = draws + 1';
+      const upd = await client.query(
+        `UPDATE users SET ${rated ? 'rating = $2,' : ''} ${incW}
+           WHERE username_low = $1 RETURNING rating, games_played, wins, losses, draws`,
+        rated ? [wLow, newRatingW] : [wLow]
+      );
+      await client.query(
+        `UPDATE users SET ${rated ? 'rating = $2,' : ''} ${incB}
+           WHERE username_low = $1 RETURNING rating, games_played, wins, losses, draws`,
+        rated ? [bLow, newRatingB] : [bLow]
+      );
+      return { wRow: upd.rows[0], ratingW: newRatingW, ratingB: newRatingB };
+    });
+    // Синхронизируем кэш из фактических значений БД (а не из локальных объектов)
+    if (finalW && finalW.wRow) {
+      const w = await getUser(wLow);
+      const b = await getUser(bLow);
+      if (w) { Object.assign(w, { rating: finalW.wRow.rating, gamesPlayed: finalW.wRow.games_played, wins: finalW.wRow.wins, losses: finalW.wRow.losses, draws: finalW.wRow.draws }); cacheUser(w); }
+      if (b) { const r2 = await db('SELECT rating, games_played, wins, losses, draws FROM users WHERE username_low = $1', [bLow]);
+        if (r2.rows[0]) Object.assign(b, { rating: r2.rows[0].rating, gamesPlayed: r2.rows[0].games_played, wins: r2.rows[0].wins, losses: r2.rows[0].losses, draws: r2.rows[0].draws }); cacheUser(b); }
+    }
+  } catch (e) {
+    console.error('[updateStats]', e.message);
   }
-  await saveUser(w); await saveUser(b);
 }
 
 
@@ -2416,6 +2548,11 @@ function startTournamentGame(tournament, p1, p2) {
 
 
 async function finishTournamentGame(tournament, game, result, reason) {
+  // Защита от двойного завершения одной и той же турнирной партии (гонка
+  // resign/timeout/game_over): без флага параллельные финалы давали двойные
+  // очки, дубли в tournament.games и сломанные счётчики participants.
+  if (game._tournamentFinished) return;
+  game._tournamentFinished = true;
   const now = Date.now();
   const wp = tournament.participants.find(p => p.username === game.white);
   const bp = tournament.participants.find(p => p.username === game.black);
@@ -2582,27 +2719,30 @@ setInterval(async () => {
         if (game.tournamentId !== t.id) continue;
         if (game.firstMoveDeadline && now > game.firstMoveDeadline) {
           if (game.moves.length === 0) {
-            // Белые не сделали первый ход — поражение белых
+            // Белые не сделали первый ход — поражение белых.
+            // Гонка (БАГ исправлен): из карт удаляем СИНХРОННО ДО await — иначе
+            // параллельный resign/timeout успевает завершить партию второй раз
+            // (двойные очки турнира/дубли в tournament.games).
             console.log(`[Tournament] Первый ход просрочен: ${game.white} (белые) в игре ${gameId}`);
+            tournamentGames.delete(gameId);
+            activeGames.delete(gameId);
             const ws = findSocketByUsername(game.white);
             const bs = findSocketByUsername(game.black);
             const payload = { gameId, result: 'black', reason: 'timeout_firstmove' };
             if (ws) ws.emit('game_ended', payload);
             if (bs) bs.emit('game_ended', payload);
             await finishTournamentGame(t, game, 'black', 'timeout_firstmove');
-            tournamentGames.delete(gameId);
-            activeGames.delete(gameId);
           } else if (game.moves.length === 1) {
             // Белые сходили, чёрные не сделали свой первый ход — поражение чёрных
             console.log(`[Tournament] Первый ход просрочен: ${game.black} (чёрные) в игре ${gameId}`);
+            tournamentGames.delete(gameId);
+            activeGames.delete(gameId);
             const ws = findSocketByUsername(game.white);
             const bs = findSocketByUsername(game.black);
             const payload = { gameId, result: 'white', reason: 'timeout_firstmove' };
             if (ws) ws.emit('game_ended', payload);
             if (bs) bs.emit('game_ended', payload);
             await finishTournamentGame(t, game, 'white', 'timeout_firstmove');
-            tournamentGames.delete(gameId);
-            activeGames.delete(gameId);
           }
         }
       }
@@ -2781,6 +2921,17 @@ const limiterSocketConnect = new RateLimiter(60_000, 200);
 
 
 async function main() {
+  // Fail-fast (issue H5): JWT_SECRET — единственный ключ идентичности на сайте
+  // (payload содержит username, роль берётся из БД по нему). Без проверки сервер
+  // молча стартовал с дефолтным/коротким секретом — это полный impersonation
+  // любого пользователя/админа через подделку токена. Теперь без сильного секрета
+  // сервер не запускается. Генерация: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+  if (!JWT_SECRET || typeof JWT_SECRET !== 'string' || JWT_SECRET.length < 32 || /change_me|changeme|secret$/i.test(JWT_SECRET)) {
+    console.error('❌ FATAL: JWT_SECRET не задан/слишком короткий/дефолтный. Сгенерируйте сильный секрет и укажите его в .env:');
+    console.error("   node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"");
+    process.exit(1);
+  }
+
   console.log('🐘 Подключение к PostgreSQL...');
   await pool.query('SELECT 1');
   console.log('✅ PostgreSQL подключён');
@@ -2789,7 +2940,6 @@ async function main() {
   await initPuzzleTables();
   await initDurkaTables();
   await initClubChatTable();
-  await initDonateTable();
   await initTournamentChatTable();
   // Клубные турниры: привязка турнира к клубу + флаг «только для участников клуба»
   await db(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS club_id TEXT`);
@@ -2799,6 +2949,10 @@ async function main() {
   await db(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS is_interclub BOOLEAN DEFAULT FALSE`);
   await db(`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS team_ids JSONB DEFAULT '[]'`);
   await db(`CREATE INDEX IF NOT EXISTS idx_tournaments_is_interclub ON tournaments(is_interclub)`);
+  // Expression-индекс под SQL-версию normForSimilarity (проверка «ник слишком
+  // похож» при регистрации) — раньше на каждую регистрацию читалась вся таблица
+  // users в Node (см. routes.js /api/register).
+  await db(`CREATE INDEX IF NOT EXISTS idx_users_norm_username ON users (translate(regexp_replace(username_low, '[-_.]', '', 'g'), 'іаеорсхв013', 'iaepcxboie'))`);
   await db(`
     CREATE TABLE IF NOT EXISTS deleted_usernames (
       username_low TEXT PRIMARY KEY,
@@ -2812,7 +2966,7 @@ async function main() {
   // 2FA по email при входе
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE`);
   // VIP-значок: временный статус (метка времени окончания в мс), выдаётся вручную
-  // из админ-панели только chesshome и Marina64 (см. isVipGranter/requireVipGranter).
+  // из админ-панели сайт-админами (см. isVipGranter/requireVipGranter).
   await db(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_until BIGINT`);
   // Значки профиля (победитель сезона и т.п.): JSON-массив id из USER_BADGES,
   // выдаются/снимаются вручную из админ-панели.
@@ -2969,7 +3123,10 @@ async function main() {
   await db(`CREATE INDEX IF NOT EXISTS idx_appeal_msgs ON appeal_messages(appeal_id, created_at ASC)`);
 
   if (!clubs.find(c => c.id === 'chesshome-official')) {
-    const offClub = { id: 'chesshome-official', name: 'ChessHome', description: 'Официальный клуб шахматной платформы Chess Home.', createdAt: new Date().toISOString(), createdBy: 'ChessHome', admins: ['ChessHome'], members: ['ChessHome'], memberCount: 1, official: true };
+    // БАГ (исправлен): createdAt был new Date().toISOString() — строка в
+    // BIGINT-колонку created_at clubs. При каждом чистом старте (когда сид
+    // клуба создаётся) сервер падал с invalid input syntax for type bigint.
+    const offClub = { id: 'chesshome-official', name: 'ChessHome', description: 'Официальный клуб шахматной платформы Chess Home.', createdAt: Date.now(), createdBy: 'ChessHome', admins: ['ChessHome'], members: ['ChessHome'], memberCount: 1, official: true };
     clubs.push(offClub); await saveClub(offClub);
   }
   for (const adminName of ['chesshome', 'marina64']) {
@@ -3004,6 +3161,7 @@ module.exports = {
   Resend,
   pendingPasswordChanges,
   pendingDeletions,
+  pendingEmailLinks,
   pendingLogins,
   TWO_FA_RESEND_COOLDOWN_MS,
   twoFactorLastSent,
@@ -3130,10 +3288,8 @@ module.exports = {
   JS_SRC_RE,
   sendVersionedHtml,
   LICHESS_TOKEN,
-  YUKASSA_SHOP_ID,
-  YUKASSA_SECRET_KEY,
   SITE_URL,
-  initDonateTable,
+  sniffImageMime,
   loginFailStreaks,
   getLoginFailStreak,
   bumpLoginFailStreak,
@@ -3155,7 +3311,6 @@ module.exports = {
   forumViewSessions,
   handleUnfollow,
   blogAuthMiddleware,
-  blogAdminMiddleware,
   isBlogAdmin,
   decodeBlogField,
   blogSanitize,

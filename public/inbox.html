@@ -1272,6 +1272,7 @@ function buildChatUI(partner, data) {
       }
     </div>
     ${isSystem ? `<div class="blocked-bar" style="display:block">📢 Это системное сообщение. Ответить на него нельзя.</div>` : ''}
+    <div id="reply-preview-bar" style="display:none;align-items:center;gap:8px;padding:6px 12px;background:rgba(127,127,127,.1);border-radius:10px;margin-bottom:6px;font-size:13px"></div>
     <div class="inbox-input-area" id="input-area" style="${isSystem || isBlocked || isBlockedBy ? 'display:none' : ''}">
       <textarea class="inbox-text-input" id="dm-input" placeholder="Написать ${escapeHtml(partner)}..." maxlength="500" rows="1"
         oninput="autoResize(this)" onkeydown="dmInputKeydown(event)"></textarea>
@@ -1313,6 +1314,17 @@ function renderMessages() {
 
     const wrap = document.createElement('div');
 
+    // Цитата (issue #56): если сообщение — ответ, показываем цитируемый текст
+    if (msg.replyTo) {
+      const quote = document.createElement('div');
+      quote.className = 'msg-quote';
+      quote.style.cssText = 'border-left:3px solid var(--accent,#c9a84c);padding:4px 10px;margin-bottom:4px;font-size:12px;opacity:.75;border-radius:6px;background:rgba(127,127,127,.12);cursor:pointer';
+      quote.innerHTML = '<b>' + escapeHtml(msg.replyTo.from) + '</b> · ' + escapeHtml(msg.replyTo.text.slice(0, 80));
+      quote.title = msg.replyTo.text;
+      quote.onclick = () => document.getElementById('msg-' + msg.replyTo.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      wrap.appendChild(quote);
+    }
+
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     bubble.textContent = msg.text;
@@ -1321,6 +1333,20 @@ function renderMessages() {
     time.className = 'msg-time';
     time.textContent = formatTime(msg.ts);
 
+    // Кнопка «Ответить» (issue #56) — не для своих и не для системных
+    if (!isMine && !isSystemPartner(msg.from)) {
+      const actions = document.createElement('div');
+      actions.style.cssText = 'margin-top:2px;opacity:0;transition:opacity .15s;font-size:12px';
+      actions.innerHTML = '<button type="button" class="msg-reply-btn" style="background:none;border:none;color:var(--accent,#c9a84c);cursor:pointer;padding:2px 0;font-size:12px">↩ Ответить</button>';
+      actions.querySelector('button').onclick = () => startDmReply(msg);
+      row.addEventListener('mouseenter', () => { actions.style.opacity = '1'; });
+      row.addEventListener('mouseleave', () => { actions.style.opacity = '0'; });
+      wrap.appendChild(actions);
+      wrap.dataset.msgId = msg.id;
+      wrap.dataset.msgFrom = msg.from;
+      wrap.dataset.msgText = msg.text;
+    }
+
     wrap.appendChild(bubble);
     wrap.appendChild(time);
 
@@ -1328,6 +1354,25 @@ function renderMessages() {
     row.appendChild(wrap);
     list.appendChild(row);
   });
+}
+
+// ─── REPLY TO MESSAGE (issue #56) ────────────────────────────
+let _replyToMsg = null;
+function startDmReply(msg) {
+  _replyToMsg = { id: msg.id, from: msg.from, text: msg.text };
+  const bar = document.getElementById('reply-preview-bar');
+  if (bar) {
+    bar.style.display = 'flex';
+    bar.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">↩ <b>' + escapeHtml(msg.from) + '</b> · ' + escapeHtml(msg.text.slice(0, 60)) + '</span>'
+      + '<button type="button" id="reply-preview-cancel" style="background:none;border:none;color:var(--text-secondary,#888);cursor:pointer;font-size:16px;padding:0 6px">✕</button>';
+    document.getElementById('reply-preview-cancel').onclick = cancelDmReply;
+  }
+  document.getElementById('dm-input')?.focus();
+}
+function cancelDmReply() {
+  _replyToMsg = null;
+  const bar = document.getElementById('reply-preview-bar');
+  if (bar) { bar.style.display = 'none'; bar.innerHTML = ''; }
 }
 
 function appendMessageToChat(msg, isMine) {
@@ -1355,6 +1400,14 @@ function appendMessageToChat(msg, isMine) {
   av.textContent = isSystemPartner(msg.from) ? '📢' : msg.from[0].toUpperCase();
 
   const wrap = document.createElement('div');
+  // Цитата (issue #56)
+  if (msg.replyTo) {
+    const quote = document.createElement('div');
+    quote.className = 'msg-quote';
+    quote.style.cssText = 'border-left:3px solid var(--accent,#c9a84c);padding:4px 10px;margin-bottom:4px;font-size:12px;opacity:.75;border-radius:6px;background:rgba(127,127,127,.12)';
+    quote.innerHTML = '<b>' + escapeHtml(msg.replyTo.from) + '</b> · ' + escapeHtml(String(msg.replyTo.text).slice(0, 80));
+    wrap.appendChild(quote);
+  }
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
   bubble.textContent = msg.text;
@@ -1444,11 +1497,12 @@ async function sendDm() {
   updateConvLastMsg(activePartner, text, tempMsg.ts, false);
 
   try {
-    const msg = await apiPost('/dm/send', { to: activePartner, text });
+    const msg = await apiPost('/dm/send', { to: activePartner, text, replyTo: _replyToMsg?.id || undefined });
 
     // Заменяем временный id на настоящий (чтобы socket/polling не дублировали)
     const idx = messages.findIndex(m => m.id === tempId);
     if (idx !== -1) messages[idx] = msg;
+    cancelDmReply();
 
     // Обновляем id у DOM-элемента
     const tempEl = document.getElementById('msg-' + tempId);

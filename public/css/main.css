@@ -1214,3 +1214,11 @@ a:hover { text-decoration: underline; }
 .mt-8 { margin-top: 8px; }
 .mt-16 { margin-top: 16px; }
 .mb-16 { margin-bottom: 16px; }
+/* ── AI-комментатор на странице анализа (issue #71) ─────────── */
+#ai-commentary.ai-say {
+  animation: aiPhraseIn .45s cubic-bezier(.22,1,.36,1);
+}
+@keyframes aiPhraseIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

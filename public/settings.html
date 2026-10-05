@@ -143,6 +143,40 @@
           <div class="toggle-slider"></div>
         </label>
       </div>
+
+      <!-- Привязка email (issue #50): нужна для 2FA, смены пароля и удаления аккаунта -->
+      <div class="settings-row" id="row-email" style="display:none">
+        <div class="settings-label">
+          <div class="settings-label-name" data-i18n="settings.email_name">Email</div>
+          <div class="settings-label-desc" id="email-status-text" data-i18n="settings.email_desc_none">Почта не привязана. Привяжите её, чтобы включить 2FA, смену пароля и удаление аккаунта</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="email" id="set-email-input" class="input" style="width:220px;padding:8px 12px" placeholder="you@example.com">
+          <button class="btn btn-ghost btn-sm" id="btn-link-email" onclick="requestLinkEmail()" data-i18n="settings.email_link_btn">Привязать</button>
+        </div>
+      </div>
+
+      <!-- Удаление аккаунта (issue #50) -->
+      <div class="settings-row" id="row-delete-account" style="display:none">
+        <div class="settings-label">
+          <div class="settings-label-name" style="color:var(--danger,#e05252)" data-i18n="settings.delete_name">Удаление аккаунта</div>
+          <div class="settings-label-desc" data-i18n="settings.delete_desc">Необратимо удаляет аккаунт, партию, статистику и сообщения. Потребуется код из письма.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger,#e05252)" onclick="requestDeleteAccount()" data-i18n="settings.delete_btn">Удалить аккаунт</button>
+      </div>
+    </div>
+
+    <!-- МОДАЛКА КОДА ПОДТВЕРЖДЕНИЯ (email-link / delete-account) -->
+    <div id="modal-confirm-code" class="modal-overlay" style="display:none">
+      <div class="modal" style="max-width:420px">
+        <h3 id="confirm-code-title" style="margin-top:0">Подтверждение</h3>
+        <p id="confirm-code-hint" style="color:var(--text-secondary);font-size:14px">Введите код из письма</p>
+        <input type="text" id="confirm-code-input" class="input" style="width:100%;padding:10px 14px;font-size:18px;letter-spacing:6px;text-align:center" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="submitConfirmCode()" data-i18n="settings.code_confirm">Подтвердить</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="closeConfirmCodeModal()" data-i18n="settings.code_cancel">Отмена</button>
+        </div>
+      </div>
     </div>
 
     <!-- ИНФОРМАЦИЯ -->
@@ -334,6 +368,90 @@ async function toggle2FA(checkbox) {
   }
 }
 
+// ── Привязка email + удаление аккаунта (issue #50) ───────────
+let _confirmCodeAction = null; // 'link-email' | 'delete-account'
+
+function showConfirmCodeModal(title, hint, action) {
+  _confirmCodeAction = action;
+  document.getElementById('confirm-code-title').textContent = title;
+  document.getElementById('confirm-code-hint').textContent = hint;
+  document.getElementById('confirm-code-input').value = '';
+  document.getElementById('modal-confirm-code').style.display = '';
+  setTimeout(() => document.getElementById('confirm-code-input')?.focus(), 50);
+}
+function closeConfirmCodeModal() {
+  _confirmCodeAction = null;
+  document.getElementById('modal-confirm-code').style.display = 'none';
+}
+
+async function requestLinkEmail() {
+  if (!currentUser) { toast(CH_I18N.t('common.login_required'), 'error'); return; }
+  const email = document.getElementById('set-email-input')?.value.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { toast(CH_I18N.t('settings.email_invalid'), 'error'); return; }
+  try {
+    const res = await apiPost('/account/request-email-link', { email });
+    toast(res.message || CH_I18N.t('settings.email_code_sent'), 'success');
+    showConfirmCodeModal(
+      CH_I18N.t('settings.email_code_title'),
+      CH_I18N.t('settings.email_code_hint') + ' ' + email,
+      'link-email'
+    );
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function requestDeleteAccount() {
+  if (!currentUser) { toast(CH_I18N.t('common.login_required'), 'error'); return; }
+  if (!confirm(CH_I18N.t('settings.delete_confirm'))) return;
+  try {
+    const res = await apiPost('/account/request-delete', {});
+    toast(res.message || CH_I18N.t('settings.delete_code_sent'), 'success');
+    showConfirmCodeModal(
+      CH_I18N.t('settings.delete_code_title'),
+      CH_I18N.t('settings.delete_code_hint'),
+      'delete-account'
+    );
+  } catch (err) {
+    // Нет привязанной почты — предлагаем сначала привязать email
+    toast(err.message, 'error');
+    if (String(err.message || '').includes('Email')) {
+      document.getElementById('set-email-input')?.focus();
+    }
+  }
+}
+
+async function submitConfirmCode() {
+  const code = document.getElementById('confirm-code-input')?.value.trim();
+  if (!code || code.length !== 6) { toast(CH_I18N.t('settings.code_invalid'), 'error'); return; }
+  if (!_confirmCodeAction) return;
+  try {
+    if (_confirmCodeAction === 'link-email') {
+      const res = await apiPost('/account/confirm-email-link', { code });
+      toast(res.message || CH_I18N.t('settings.email_linked'), 'success');
+      if (currentUser) currentUser.email = res.email;
+      updateEmailStatus();
+    } else if (_confirmCodeAction === 'delete-account') {
+      await apiPost('/account/confirm-delete', { code });
+      // Сервер отключает сокет и снимает сессию — уходим на главную
+      alert(CH_I18N.t('settings.delete_done'));
+      window.location.href = '/';
+      return;
+    }
+    closeConfirmCodeModal();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function updateEmailStatus() {
+  const statusEl = document.getElementById('email-status-text');
+  if (!statusEl) return;
+  if (currentUser?.email) {
+    statusEl.textContent = currentUser.email;
+    const btn = document.getElementById('btn-link-email');
+    if (btn) btn.style.display = 'none';
+    const input = document.getElementById('set-email-input');
+    if (input) input.style.display = 'none';
+  }
+}
+
 function updateEmojiPreview(emoji) {
   const preview = document.getElementById('current-emoji-preview');
   const removeBtn = document.getElementById('btn-remove-emoji');
@@ -391,6 +509,12 @@ async function init() {
       row2fa.style.display = '';
       set2fa.checked = !!currentUser.twoFactorEnabled;
     }
+    // Привязка email + удаление аккаунта (issue #50)
+    const rowEmail = document.getElementById('row-email');
+    if (rowEmail) rowEmail.style.display = '';
+    const rowDelete = document.getElementById('row-delete-account');
+    if (rowDelete) rowDelete.style.display = '';
+    updateEmailStatus();
   }
 }
 init();

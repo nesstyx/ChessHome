@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-i18n="blog.page_title">Blog — Chess Home</title>
+  <title data-i18n="blog.page_title">Блог — Chess Home</title>
   <script src="/js/i18n.js"></script>
   <script src="/js/header.js"></script>
   <link rel="icon" href="/img/logo/favicon.png">
@@ -398,59 +398,67 @@ a{color:inherit;text-decoration:none}
   <!-- LIST -->
   <div id="view-list">
     <div class="blog-header">
-      <h1 data-i18n="blog.title">📰 Chess Home Blog</h1>
+      <h1 data-i18n="blog.title">📰 Блог Chess Home</h1>
       <div id="new-post-wrap" style="display:none">
-        <button class="btn btn-primary btn-sm" data-i18n="blog.write_article" onclick="openEditor(null)">✏️ Write an article</button>
+        <button class="btn btn-primary btn-sm" data-i18n="blog.write_article" onclick="openEditor(null)">✏️ Написать статью</button>
       </div>
     </div>
 
     <!-- Official / Community -->
     <div class="section-tabs">
-      <button class="section-tab active" id="stab-official" data-i18n="blog.tab_official" onclick="switchSection('official')">👑 Official</button>
-      <button class="section-tab" id="stab-community" data-i18n="blog.tab_community" onclick="switchSection('community')">🌍 Community</button>
+      <button class="section-tab active" id="stab-official" data-i18n="blog.tab_official" onclick="switchSection('official')">👑 Официальный</button>
+      <button class="section-tab" id="stab-community" data-i18n="blog.tab_community" onclick="switchSection('community')">🌍 Сообщество</button>
     </div>
 
     <!-- Drafts (for logged-in users in community) -->
     <div id="filter-tabs-wrap" class="filter-tabs" style="display:none">
-      <button class="filter-tab active" id="ftab-pub" data-i18n="blog.filter_published" onclick="switchFilter('published')">Published</button>
-      <button class="filter-tab" id="ftab-draft" data-i18n="blog.filter_my_drafts" onclick="switchFilter('drafts')">My drafts</button>
-      <button class="filter-tab" id="ftab-hidden" style="display:none" data-i18n="blog.filter_hidden" onclick="switchFilter('hidden')">🙈 Hidden</button>
+      <button class="filter-tab active" id="ftab-pub" data-i18n="blog.filter_published" onclick="switchFilter('published')">Опубликованные</button>
+      <button class="filter-tab" id="ftab-draft" data-i18n="blog.filter_my_drafts" onclick="switchFilter('drafts')">Мои черновики</button>
+      <button class="filter-tab" id="ftab-hidden" style="display:none" data-i18n="blog.filter_hidden" onclick="switchFilter('hidden')">🙈 Скрытые</button>
     </div>
 
     <!-- Sort: recent (default, newly published stays visible) vs popular -->
     <div id="sort-tabs-wrap" class="filter-tabs">
-      <button class="filter-tab active" id="sort-recent" data-i18n="blog.sort_recent" onclick="switchSort('recent')">🆕 Newest</button>
-      <button class="filter-tab" id="sort-popular" data-i18n="blog.sort_popular" onclick="switchSort('popular')">🔥 Popular</button>
+      <button class="filter-tab active" id="sort-recent" data-i18n="blog.sort_recent" onclick="switchSort('recent')">🆕 Новые</button>
+      <button class="filter-tab" id="sort-popular" data-i18n="blog.sort_popular" onclick="switchSort('popular')">🔥 Популярное</button>
+    </div>
+
+    <!-- Поиск по блогам (issue #51) -->
+    <div id="blog-search-wrap" style="margin:10px 0 4px">
+      <input type="search" id="blog-search-input" class="input" style="width:100%;max-width:420px"
+             data-i18n-placeholder="blog.search_placeholder"
+             placeholder="🔍 Поиск статей…"
+             oninput="debouncedBlogSearch()">
     </div>
 
     <!-- Hint for guests in the community section -->
     <div id="community-login-hint" style="display:none" class="login-prompt" data-i18n-html="blog.community_login_hint">
-      <a href="/">Sign in</a> to write articles in the community blog
+      <a href="/">Войдите</a>, чтобы писать статьи в блоге сообщества
     </div>
 
     <!-- Community disclaimer -->
     <div id="community-disclaimer-bar" style="display:none" class="community-disclaimer">
       <span class="disc-icon">ℹ️</span>
       <div class="disc-text">
-        <span data-i18n-html="blog.disclaimer.intro"><b>Community Blog</b> — articles are written by Chess Home members.</span>
-        <span id="disc-short" data-i18n="blog.disclaimer.short"> Opinions expressed by authors may not reflect the position of the administration.</span>
+        <span data-i18n-html="blog.disclaimer.intro"><b>Блог сообщества</b> — статьи написаны участниками Chess Home.</span>
+        <span id="disc-short" data-i18n="blog.disclaimer.short"> Мнения авторов могут не совпадать с позицией администрации.</span>
         <div class="disc-full" id="disc-full" data-i18n="blog.disclaimer.full">
-          The Chess Home administration is not responsible for the content of posts by community members.
+          Администрация Chess Home не несёт ответственности за содержание публикаций участников сообщества. Мнения, оценки и суждения авторов являются их личной позицией и могут не совпадать с позицией редакции и администрации платформы. Если вы обнаружили нарушение правил — используйте кнопку «Пожаловаться» или обратитесь к администратору.
         </div>
       </div>
-      <button class="disc-toggle-btn" id="disc-toggle-btn" data-i18n="blog.disclaimer.more" onclick="toggleDisclaimer()">Details</button>
+      <button class="disc-toggle-btn" id="disc-toggle-btn" data-i18n="blog.disclaimer.more" onclick="toggleDisclaimer()">Подробнее</button>
     </div>
 
     <div id="blog-list" class="blog-list">
-      <div class="blog-loading"><div class="spinner"></div> <span data-i18n="blog.loading">Loading...</span></div>
+      <div class="blog-loading"><div class="spinner"></div> <span data-i18n="blog.loading">Загрузка...</span></div>
     </div>
   </div>
 
   <!-- POST VIEW -->
   <div id="view-post">
-    <div class="vp-back" data-i18n="blog.back_to_list" onclick="goBack()">← All articles</div>
+    <div class="vp-back" data-i18n="blog.back_to_list" onclick="goBack()">← Все статьи</div>
     <div class="vp-hero">
-      <div id="vp-draft-wrap" style="display:none"><span class="draft-badge" data-i18n="blog.draft_badge">DRAFT</span></div>
+      <div id="vp-draft-wrap" style="display:none"><span class="draft-badge" data-i18n="blog.draft_badge">ЧЕРНОВИК</span></div>
       <div class="vp-title" id="vp-title"></div>
       <div class="vp-meta">
         <div class="author-chip">
@@ -466,29 +474,29 @@ a{color:inherit;text-decoration:none}
     <!-- Дисклеймер внутри поста (только для community) -->
     <div class="vp-disclaimer" id="vp-disclaimer" style="display:none" data-i18n-html="blog.disclaimer.post_body">
       <span class="vd-icon">ℹ️</span>
-      <div>This post is from the <b style="color:var(--blue)">community blog</b>. The author's opinion is their own and may not reflect the position of the Chess Home administration. The administration is not responsible for the content of member posts.</div>
+      <div>Это публикация из <b style="color:var(--blue)">блога сообщества</b>. Мнение автора является его личной позицией и может не совпадать с позицией администрации Chess Home. Администрация не несёт ответственности за содержание публикаций участников.</div>
     </div>
     <div class="vp-actions">
       <button class="like-btn" id="like-btn" onclick="toggleLike()">
-        <span class="heart">❤️</span><span id="like-count">0</span> <span data-i18n="blog.likes_suffix">likes</span>
+        <span class="heart">❤️</span><span id="like-count">0</span> <span data-i18n="blog.likes_suffix">нравится</span>
       </button>
       <span id="like-login-hint" style="display:none;font-size:13px;color:var(--text3)" data-i18n-html="blog.like_login_hint">
-        <a href="/" style="color:var(--accent)">Sign in</a> to like
+        <a href="/" style="color:var(--accent)">Войдите</a>, чтобы поставить лайк
       </span>
     </div>
     <div id="vp-author-bar" class="vp-author-bar" style="display:none">
-      <span class="bar-label" id="vp-bar-label" data-i18n="blog.manage_label">⚙️ Manage</span>
-      <button class="btn btn-ghost btn-sm" data-i18n="blog.edit_link" onclick="editCurrentPost()">✏️ Edit</button>
+      <span class="bar-label" id="vp-bar-label" data-i18n="blog.manage_label">⚙️ Управление</span>
+      <button class="btn btn-ghost btn-sm" data-i18n="blog.edit_link" onclick="editCurrentPost()">✏️ Редактировать</button>
       <button class="btn btn-ghost btn-sm" id="toggle-pub-btn" onclick="togglePublish()"></button>
-      <button class="btn btn-ghost btn-sm" id="hide-post-btn" style="display:none" data-i18n="blog.hide_btn" onclick="hidePost()">🙈 Hide</button>
-      <button class="btn btn-danger btn-sm" data-i18n="blog.delete_btn" onclick="deletePost()">🗑 Delete</button>
+      <button class="btn btn-ghost btn-sm" id="hide-post-btn" style="display:none" data-i18n="blog.hide_btn" onclick="hidePost()">🙈 Прикрыть</button>
+      <button class="btn btn-danger btn-sm" data-i18n="blog.delete_btn" onclick="deletePost()">🗑 Удалить</button>
     </div>
 
     <!-- Big Comments button -->
     <a id="comments-btn-wrap" href="#" onclick="openCommentsView(event)" style="display:none;text-decoration:none;margin-top:28px;display:block">
       <div class="comments-big-btn">
         <span class="cbb-icon">💬</span>
-        <span class="cbb-label" data-i18n="blog.comments_label">Comments</span>
+        <span class="cbb-label" data-i18n="blog.comments_label">Комментарии</span>
         <span class="cbb-count" id="cbb-count"></span>
         <span class="cbb-arrow">→</span>
       </div>
@@ -497,9 +505,9 @@ a{color:inherit;text-decoration:none}
 
   <!-- COMMENTS VIEW -->
   <div id="view-comments" style="display:none">
-    <div class="vp-back" data-i18n="blog.back_to_post" onclick="closeCommentsView()">← Back to article</div>
+    <div class="vp-back" data-i18n="blog.back_to_post" onclick="closeCommentsView()">← К статье</div>
     <div class="cmt-header">
-      <h2 class="cmt-title" id="cmt-post-title" data-i18n="blog.comments_label">Comments</h2>
+      <h2 class="cmt-title" id="cmt-post-title" data-i18n="blog.comments_label">Комментарии</h2>
       <span class="cmt-subtitle" id="cmt-count-label"></span>
     </div>
 
@@ -509,7 +517,7 @@ a{color:inherit;text-decoration:none}
     <!-- Input form -->
     <div id="cmt-write-wrap">
       <div id="cmt-login-hint" style="display:none" class="login-prompt" data-i18n-html="blog.comment_login_hint">
-        <a href="/">Sign in</a> to leave a comment
+        <a href="/">Войдите</a>, чтобы оставить комментарий
       </div>
       <div id="cmt-form" style="display:none">
         <div class="cmt-md-wrap">
@@ -523,39 +531,39 @@ a{color:inherit;text-decoration:none}
             <button onclick="cmtInsLine('- ')">•</button>
           </div>
           <div class="cmt-tabs">
-            <div class="md-tab active" id="ctab-write" data-i18n="blog.write_tab" onclick="cmtSwitchTab('write')">✏️ Write</div>
-            <div class="md-tab" id="ctab-prev" data-i18n="blog.preview_tab" onclick="cmtSwitchTab('preview')">👁 Preview</div>
+            <div class="md-tab active" id="ctab-write" data-i18n="blog.write_tab" onclick="cmtSwitchTab('write')">✏️ Писать</div>
+            <div class="md-tab" id="ctab-prev" data-i18n="blog.preview_tab" onclick="cmtSwitchTab('preview')">👁 Предпросмотр</div>
           </div>
           <div class="md-panel active" id="cpanel-write">
             <textarea id="cmt-textarea" class="cmt-textarea" maxlength="4000"
               data-i18n-placeholder="blog.comment_placeholder"
-              placeholder="Write a comment (Markdown supported)...&#10;**bold** *italic* `code` > quote"
+              placeholder="Напишите комментарий (Markdown поддерживается)...&#10;**жирный** *курсив* `код` > цитата"
               oninput="cmtUpdateCounter()"></textarea>
           </div>
           <div class="md-panel" id="cpanel-preview">
-            <div class="cmt-preview-wrap md-body" id="cmt-preview-body"><span class="md-empty" data-i18n="blog.preview_empty_short">Preview...</span></div>
+            <div class="cmt-preview-wrap md-body" id="cmt-preview-body"><span class="md-empty" data-i18n="blog.preview_empty_short">Предпросмотр...</span></div>
           </div>
         </div>
         <div class="cmt-form-bottom">
           <span class="char-counter" id="cmt-counter">0 / 4000</span>
-          <button class="btn btn-primary" id="cmt-submit-btn" data-i18n="blog.send_btn" onclick="submitComment()">💬 Send</button>
+          <button class="btn btn-primary" id="cmt-submit-btn" data-i18n="blog.send_btn" onclick="submitComment()">💬 Отправить</button>
         </div>
       </div>
     </div>
 
     <!-- Comments list -->
     <div id="cmt-list" class="cmt-list">
-      <div class="blog-loading"><div class="spinner"></div> <span data-i18n="blog.loading_comments">Loading comments...</span></div>
+      <div class="blog-loading"><div class="spinner"></div> <span data-i18n="blog.loading_comments">Загрузка комментариев...</span></div>
     </div>
   </div>
 
   <!-- EDITOR -->
   <div id="editor-panel">
     <div class="editor-back-row">
-      <h2 id="editor-h2" data-i18n="blog.new_article_title">✏️ New article</h2>
-      <button class="btn btn-ghost btn-sm" data-i18n="blog.cancel_btn" onclick="cancelEditor()">✕ Cancel</button>
+      <h2 id="editor-h2" data-i18n="blog.new_article_title">✏️ Новая статья</h2>
+      <button class="btn btn-ghost btn-sm" data-i18n="blog.cancel_btn" onclick="cancelEditor()">✕ Отмена</button>
     </div>
-    <input type="text" class="title-input" id="post-title" data-i18n-placeholder="blog.title_placeholder" placeholder="Article title..." maxlength="200">
+    <input type="text" class="title-input" id="post-title" data-i18n-placeholder="blog.title_placeholder" placeholder="Заголовок статьи..." maxlength="200">
     <div class="md-wrap">
       <div class="md-toolbar">
         <button onclick="ins('**','**')"><b>B</b></button>
@@ -566,35 +574,35 @@ a{color:inherit;text-decoration:none}
         <button onclick="insLine('### ')">H3</button>
         <button onclick="insLine('#### ')">H4</button>
         <div class="md-sep"></div>
-        <button data-i18n="blog.toolbar.bullet_list" onclick="insLine('- ')">• list</button>
-        <button data-i18n="blog.toolbar.numbered_list" onclick="insLine('1. ')">1. list</button>
-        <button data-i18n="blog.toolbar.quote" onclick="insLine('> ')">❝ quote</button>
+        <button data-i18n="blog.toolbar.bullet_list" onclick="insLine('- ')">• список</button>
+        <button data-i18n="blog.toolbar.numbered_list" onclick="insLine('1. ')">1. список</button>
+        <button data-i18n="blog.toolbar.quote" onclick="insLine('> ')">❝ цитата</button>
         <div class="md-sep"></div>
-        <button data-i18n-html="blog.toolbar.code" onclick="ins('`','`')">&lt;/&gt; code</button>
-        <button data-i18n-html="blog.toolbar.code_block" onclick="insBlock()">``` block</button>
+        <button data-i18n-html="blog.toolbar.code" onclick="ins('`','`')">&lt;/&gt; код</button>
+        <button data-i18n-html="blog.toolbar.code_block" onclick="insBlock()">``` блок</button>
         <div class="md-sep"></div>
-        <button data-i18n="blog.toolbar.link" onclick="insLink()">🔗 link</button>
-        <button data-i18n="blog.toolbar.divider" onclick="insLine('---')">— divider</button>
+        <button data-i18n="blog.toolbar.link" onclick="insLink()">🔗 ссылка</button>
+        <button data-i18n="blog.toolbar.divider" onclick="insLine('---')">— разделитель</button>
       </div>
       <div class="md-tabs">
-        <div class="md-tab active" id="etab-write" data-i18n="blog.editor_tab" onclick="switchETab('write')">✏️ Editor</div>
-        <div class="md-tab" id="etab-preview" data-i18n="blog.preview_tab" onclick="switchETab('preview')">👁 Preview</div>
+        <div class="md-tab active" id="etab-write" data-i18n="blog.editor_tab" onclick="switchETab('write')">✏️ Редактор</div>
+        <div class="md-tab" id="etab-preview" data-i18n="blog.preview_tab" onclick="switchETab('preview')">👁 Предпросмотр</div>
       </div>
       <div class="md-panel active" id="epanel-write">
         <textarea class="md-textarea" id="post-body"
           data-i18n-placeholder="blog.editor_placeholder"
-          placeholder="Write your article in Markdown...&#10;&#10;## Heading&#10;**bold** *italic* ~~strikethrough~~&#10;> quote&#10;&#10;- item&#10;- another item&#10;&#10;```&#10;code&#10;```"
+          placeholder="Пиши статью в Markdown...&#10;&#10;## Заголовок&#10;**жирный** *курсив* ~~зачёркнутый~~&#10;> цитата&#10;&#10;- пункт&#10;- ещё пункт&#10;&#10;```&#10;код&#10;```"
           oninput="updateCounter()"></textarea>
-        <div class="md-hint" data-i18n="blog.editor_hint">**bold** · *italic* · ## Heading · > quote · `code` · [link](url)</div>
+        <div class="md-hint" data-i18n="blog.editor_hint">**жирный** · *курсив* · ## Заголовок · > цитата · `код` · [ссылка](url)</div>
       </div>
       <div class="md-panel" id="epanel-preview">
-        <div class="md-preview-wrap md-body" id="editor-preview"><span class="md-empty" data-i18n="blog.preview_empty_long">Preview will appear here...</span></div>
+        <div class="md-preview-wrap md-body" id="editor-preview"><span class="md-empty" data-i18n="blog.preview_empty_long">Предпросмотр появится здесь...</span></div>
       </div>
     </div>
-    <div class="char-counter" id="char-counter">0 characters</div>
+    <div class="char-counter" id="char-counter">0 символов</div>
     <div class="editor-actions">
-      <button class="btn btn-ghost" id="btn-draft" data-i18n="blog.save_draft_btn" onclick="savePost('draft')">💾 Save draft</button>
-      <button class="btn btn-primary" id="btn-pub" data-i18n="blog.publish_btn" onclick="savePost('published')">🚀 Publish</button>
+      <button class="btn btn-ghost" id="btn-draft" data-i18n="blog.save_draft_btn" onclick="savePost('draft')">💾 Сохранить черновик</button>
+      <button class="btn btn-primary" id="btn-pub" data-i18n="blog.publish_btn" onclick="savePost('published')">🚀 Опубликовать</button>
     </div>
   </div>
 
@@ -820,6 +828,10 @@ async function loadPosts() {
     if (currentFilter === 'drafts') url += '&status=drafts';
     if (currentFilter === 'hidden') url += '&status=hidden';
     if (currentFilter === 'published') url += `&sort=${currentSort}`;
+    // Поиск по блогам (issue #51)
+    const searchInput = document.getElementById('blog-search-input');
+    const q = (searchInput?.value || '').trim();
+    if (q.length >= 2) url += '&q=' + encodeURIComponent(q);
     const res = await apiGet(url);
     allPosts = Array.isArray(res) ? res : (res.posts || []);
   } catch(e) {
@@ -827,6 +839,13 @@ async function loadPosts() {
     return;
   }
   renderList();
+}
+
+// Дебаунс поиска: не дёргаем API на каждый символ
+let _blogSearchTimer = null;
+function debouncedBlogSearch() {
+  clearTimeout(_blogSearchTimer);
+  _blogSearchTimer = setTimeout(loadPosts, 350);
 }
 
 function renderList() {
@@ -1351,8 +1370,12 @@ async function toggleReaction(cid, emoji) {
   const removing = c.myReaction === emoji;
   try {
     const res = await apiPost('/blog/'+cmtPostId+'/comments/'+cid+'/react', removing ? {} : {emoji});
-    c.reactions = res.reactions || {};
-    c.myReaction = res.removed ? null : emoji;
+    // Баг #40 (исправлен): раньше здесь было c.reactions = res.reactions || {} —
+    // при снятии реакции сервер раньше не возвращал карту, и локально затирались
+    // ВСЕ чужие эмодзи до перезагрузки страницы. Теперь сервер всегда возвращает
+    // reactions, а клиент дополнительно защищён от затирания пустым ответом.
+    if (res.reactions) c.reactions = res.reactions;
+    c.myReaction = res.removed ? null : (res.myReaction || emoji);
     const rowEl = document.getElementById('react-row-'+cid);
     if (rowEl) rowEl.innerHTML = buildReactionsHtml(c);
   } catch(e) { toast(e.message,'error'); }

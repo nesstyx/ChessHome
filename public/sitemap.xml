@@ -156,6 +156,9 @@
   <!-- ★ 0.3 – Анализ и редактор (самые низкие) -->
   <url>
     <loc>https://chesshome.pro/analysis</loc>
+    <url>
+      <loc>https://chesshome.pro/ai</loc>
+    </url>
     <lastmod>2026-04-02</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.3</priority>

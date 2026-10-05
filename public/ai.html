@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ChessHome AI</title>
+<link rel="icon" href="/img/logo/favicon.png">
 <style>
   /* ── ChessHome AI — минималистичная чёрно-бирюзовая тема ───────── */
   :root {
@@ -424,41 +425,44 @@
   <div class="page-wrap">
     <div class="header-block">
       <div class="logo-mark"></div>
-      <div class="badge"><span class="dot"></span> ChessHome AI online</div>
+      <div class="badge"><span class="dot"></span> <span data-i18n="ai.page_badge">ChessHome AI online</span></div>
       <h1><span class="piece">♞</span>Chess<span class="hl">Home</span> AI</h1>
-      <p>Задай вопрос про сайт — отвечу, если знаю</p>
+      <p data-i18n="ai.page_subtitle">Задай вопрос про сайт — отвечу, если знаю</p>
+      <div class="analysis-link" style="margin-top:14px">
+        <a href="/analysis" style="color:#4fd1c5;text-decoration:none;font-size:14px;font-weight:600">🔍 <span data-i18n="ai.page_try_analysis">Разобрать партию с Stockfish →</span></a>
+      </div>
     </div>
 
     <div class="chat-shell">
       <div class="chat-topbar">
         <div class="who"><span class="ava">♞</span> ChessHome AI <span class="status" id="chat-status">BETA</span></div>
-        <button class="clear-btn" id="clear-chat-btn" title="Очистить историю">
+        <button class="clear-btn" id="clear-chat-btn" title="Очистить историю" data-i18n-title="ai.page_clear_title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
-          <span>Очистить</span>
+          <span data-i18n="ai.page_clear">Очистить</span>
         </button>
       </div>
 
       <div class="chat-log" id="chat-log"></div>
       <div class="suggestions" id="suggestions"></div>
       <div class="input-bar">
-        <input type="text" id="chat-input" placeholder="Напиши что-нибудь..." autocomplete="off" disabled>
-        <button id="send-btn" disabled>Отправить</button>
+        <input type="text" id="chat-input" placeholder="Напиши что-нибудь..." autocomplete="off" disabled data-i18n-placeholder="ai.page_input_placeholder">
+        <button id="send-btn" disabled data-i18n="ai.page_send">Отправить</button>
       </div>
 
       <div class="auth-gate" id="auth-gate">
         <div class="lock-icon">🔒</div>
-        <h3>Только для зарегистрированных</h3>
-        <p>Войдите или зарегистрируйтесь, чтобы пообщаться с ChessHome AI — это займёт 10 секунд.</p>
+        <h3 data-i18n="ai.page_gate_title">Только для зарегистрированных</h3>
+        <p data-i18n="ai.page_gate_text">Войдите или зарегистрируйтесь, чтобы пообщаться с ChessHome AI — это займёт 10 секунд.</p>
         <div class="btns">
-          <button class="btn-login" onclick="openAuthModal('login')">Войти</button>
-          <button class="btn-register" onclick="openAuthModal('register')">Регистрация</button>
+          <button class="btn-login" onclick="openAuthModal('login')" data-i18n="ai.page_gate_login">Войти</button>
+          <button class="btn-register" onclick="openAuthModal('register')" data-i18n="ai.page_gate_register">Регистрация</button>
         </div>
       </div>
     </div>
 
     <div class="footnote">
       ChessHome AI BETA <br>
-      <a href="/">← Вернуться на ChessHome</a>
+      <a href="/" data-i18n="ai.page_back">← Вернуться на ChessHome</a>
     </div>
   </div>
 
@@ -468,6 +472,7 @@
   </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/js/i18n.js"></script>
 <script src="/js/header.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════
@@ -478,6 +483,15 @@
 // ══════════════════════════════════════════════════════════════
 
 const API = '/api';
+
+// i18n-хелпер: словарь может быть ещё не загружен — тогда русский fallback
+function T(key, fallback) {
+  try {
+    const v = window.CH_I18N ? window.CH_I18N.t(key) : undefined;
+    if (v && v !== key) return v;
+  } catch (e) { /* i18n недоступен */ }
+  return fallback !== undefined ? fallback : key;
+}
 
 async function apiPost(path, body) {
   const res = await fetch(API + path, {
@@ -554,7 +568,15 @@ const INTENTS = [
     action: { label: 'Попробовать Storm →', href: '/storm' } },
 
   { keywords: ['анализ', 'stockfish', 'разбор парти'],
-    answers: ['На странице анализа партию разбирает Stockfish — можно смотреть оценку позиции ход за ходом.'],
+    answers: ['На странице анализа партию разбирает Stockfish — можно смотреть оценку позиции ход за ходом, а ещё там живёт мой коллега — AI-комментатор с весёлыми фразами.', 'Хочешь разобрать партию? На /analysis Stockfish покажет оценку, лучший ход и главную линию. Работает и с позициями из редактора!'],
+    action: { label: 'Открыть анализ →', href: '/analysis' } },
+
+  { keywords: ['зевнул', 'зевок', 'блондер', 'грубая ошибк', 'проиграл фигур', 'косяк'],
+    answers: ['Бывает! Прогони партию через анализ — Stockfish покажет, где оценка поехала, а AI-комментатор честно (и весело) об этом скажет.'],
+    action: { label: 'Разобрать партию →', href: '/analysis' } },
+
+  { keywords: ['проверь мою партию', 'проверь партию', 'оценка партии', 'точность', 'как я сыграл'],
+    answers: ['Оценку по ходам считает Stockfish на странице анализа: открой партию из истории профиля или загрузи PGN — и смотри по шагам.'],
     action: { label: 'Открыть анализ →', href: '/analysis' } },
 
   { keywords: ['редактор', 'своя позиция', 'составить позицию'],
@@ -592,7 +614,7 @@ const INTENTS = [
     action: { label: 'Написать в поддержку →', href: '/report' } },
 
   { keywords: ['донат', 'поддержать проект', 'задонатить'],
-    answers: ['Если хочешь поддержать проект — есть отдельная страничка доната. Приятно, но совсем не обязательно ❤️'],
+    answers: ['Если хочешь поддержать проект — есть страница доната на CloudTips. Приятно, но совсем не обязательно ❤️'],
     action: { label: 'Поддержать →', href: 'https://pay.cloudtips.ru/p/b0c3a0aa' } },
 
   { keywords: ['статистик сайта', 'сколько игроков', 'сколько партий'],
@@ -642,7 +664,7 @@ const FALLBACK_ANSWERS = [
 
 const SUGGESTED_QUESTIONS = [
   'Привет!', 'Как зарегистрироваться?', 'Как считается рейтинг?',
-  'Есть турниры?', 'Расскажи анекдот', 'Кто ты?', 'Что такое пат?',
+  'Есть турниры?', 'Расскажи анекдот', 'Кто ты?', 'Что такое пат?', 'Как разобрать партию?',
 ];
 
 function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -785,9 +807,9 @@ function renderSuggestions() {
 renderSuggestions();
 
 document.getElementById('clear-chat-btn').addEventListener('click', () => {
-  if (!confirm('Очистить историю переписки?')) return;
+  if (!confirm(T('ai.page_confirm_clear', 'Очистить историю переписки?'))) return;
   messages = [];
-  const greeting = { who: 'ai', text: 'Привет! Я ChessHome AI 🤖♟️ Спроси меня о сайте, или жми на подсказки ниже.', action: null };
+  const greeting = { who: 'ai', text: T('ai.page_greeting', 'Привет! Я ChessHome AI 🤖♟️ Спроси меня о сайте, или жми на подсказки ниже.'), action: null };
   messages.push(greeting);
   renderAllMessages();
   saveHistory(messages);
@@ -802,7 +824,7 @@ function unlockChat() {
   if (restored && restored.length) {
     messages = restored;
   } else {
-    messages = [{ who: 'ai', text: 'Привет! Я ChessHome AI 🤖♟️ Спроси меня о сайте, или жми на подсказки ниже.', action: null }];
+    messages = [{ who: 'ai', text: T('ai.page_greeting', 'Привет! Я ChessHome AI 🤖♟️ Спроси меня о сайте, или жми на подсказки ниже.'), action: null }];
   }
   renderAllMessages();
 }
@@ -810,7 +832,7 @@ function lockChat() {
   authGateEl.classList.add('show');
   inputEl.disabled = true;
   sendBtn.disabled = true;
-  messages = [{ who: 'ai', text: 'Привет! Я ChessHome AI 🤖♟️ Войди, чтобы пообщаться со мной по-настоящему.', action: null }];
+  messages = [{ who: 'ai', text: T('ai.page_greeting_locked', 'Привет! Я ChessHome AI 🤖♟️ Войди, чтобы пообщаться со мной по-настоящему.'), action: null }];
   renderAllMessages();
 }
 function onAuthStateResolved(user) {
@@ -949,13 +971,19 @@ document.addEventListener('DOMContentLoaded', () => {
       onAuthStateResolved(user);
     };
     CH.openAuthModal = (mode) => openAuthModal(mode); // подменяем на нашу модалку
-    CH.initHeader();
+    CH.initHeader({ activePage: 'ai' });
     // На случай если сессии нет — CH.initHeader сам вызовет setCurrentUser(null)
     // не всегда явно, подстрахуемся собственным запросом.
     setTimeout(() => { if (currentUser === null) apiGet('/me').then(u => onAuthStateResolved(u)); }, 400);
   } else {
     apiGet('/me').then(u => onAuthStateResolved(u));
   }
+});
+
+// Смена языка: переводим статичный каркас (data-i18n) и перерисовываем чат
+// с приветствием на новом языке (история остаётся нетронутой).
+document.addEventListener('ch-lang-changed', () => {
+  if (typeof currentUser !== 'undefined') onAuthStateResolved(currentUser);
 });
 </script>
 </body>

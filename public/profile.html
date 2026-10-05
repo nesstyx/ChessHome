@@ -7,7 +7,7 @@
   <title>Профиль — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
   <script src="/js/header.js"></script>
-  <link rel="icon" type="image/png" href="../img/logo/favicon.png">
+  <link rel="icon" type="image/png" href="/img/logo/favicon.png">
 
   <style>
     * {
@@ -642,6 +642,11 @@
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              <div class="section-card" id="profile-clubs-card" style="display:none">
+                <div class="section-title" data-i18n="profile.clubs_title">🏛 Клубы</div>
+                <div id="profile-clubs-list" style="display:flex;flex-wrap:wrap;gap:8px"></div>
               </div>
 
               <div class="section-card">
@@ -1576,6 +1581,9 @@ window.loadActivity = loadActivity;
             bioEl.classList.add('empty');
           }
         }
+        // Клубы пользователя (issue #42): список клубов, где состоит игрок
+        loadProfileClubs(user.username);
+
         // Внешние рейтинги (ФШР / FIDE)
         const extRatingsEl = document.getElementById('ext-ratings');
         if (extRatingsEl) {
@@ -1761,3 +1769,24 @@ window.loadActivity = loadActivity;
 </body>
 
 </html>
+
+// ── Клубы профиля (issue #42) ────────────────────────────────
+// API /api/clubs публичный и возвращает members для каждого клуба —
+// фильтруем на клиенте одним запросом (клубов на платформе десятки).
+async function loadProfileClubs(username) {
+  const card = document.getElementById('profile-clubs-card');
+  const listEl = document.getElementById('profile-clubs-list');
+  if (!card || !listEl) return;
+  try {
+    const clubs = await apiGet('/clubs');
+    const mine = (Array.isArray(clubs) ? clubs : []).filter(c => (c.members || []).some(m => String(m).toLowerCase() === String(username).toLowerCase()));
+    if (!mine.length) return; // секция остаётся скрытой
+    card.style.display = '';
+    listEl.innerHTML = mine.map(c =>
+      '<a href="/clubs/' + escapeHtml(c.id) + '" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border,rgba(255,255,255,.1));border-radius:12px;text-decoration:none;color:inherit;font-size:14px">'
+      + '<span>' + escapeHtml(c.name) + '</span>'
+      + (c.official ? '<span style="font-size:11px;color:var(--accent,#c9a84c)">★</span>' : '')
+      + '<span style="font-size:12px;color:var(--text-muted)">' + (c.memberCount || (c.members || []).length) + '</span></a>'
+    ).join('');
+  } catch {}
+}

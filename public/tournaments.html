@@ -6,7 +6,7 @@
   <title data-i18n="tournaments.page_title">Турниры — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
   <script src="/js/header.js"></script>
-<link rel="icon" type="image/png" href="../img/logo/favicon.png">
+<link rel="icon" type="image/png" href="/img/logo/favicon.png">
   <style>
     body { background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); }
 
@@ -59,6 +59,8 @@
     /* ── TABS ── */
     .tabs-bar {
       display: flex;
+      flex-wrap: wrap;          /* issue #22: не выпадать за экран на мобильных */
+      max-width: 100%;
       gap: 4px;
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -577,6 +579,8 @@
       .t-card { flex-wrap: wrap; gap: 12px; }
       .t-card-right { flex-direction: row; align-items: center; }
       .page-hero h1 { font-size: 28px; }
+      /* issue #22: табы «Идут сейчас / Предстоят / Завершены» не влезают в 360px */
+      .tab-btn { padding: 8px 12px; font-size: 13px; }
     }
   </style>
 </head>

@@ -18,6 +18,7 @@
       margin-bottom: 28px;
       display: flex;
       align-items: center;
+      flex-wrap: wrap; /* issue #22: кнопки не выталкиваются за экран на мобильных */
       gap: 16px;
     }
     .admin-hero-icon { font-size: 36px; }
@@ -69,7 +70,8 @@
       display: flex; align-items: center; gap: 8px;
       background: rgba(224,85,85,.08); border: 1px solid rgba(224,85,85,.25);
       border-radius: 8px; padding: 8px 14px; font-size: 13px; color: var(--red);
-      font-weight: 600; flex: 1;
+      font-weight: 600; flex: 1; min-width: 0;
+      overflow-wrap: anywhere; word-break: break-word; /* issue #22: длинные ники в чёрном списке */
     }
     .bl-remove { margin-left: auto; cursor: pointer; opacity: .7; font-size: 16px; }
     .bl-remove:hover { opacity: 1; }
@@ -77,7 +79,8 @@
 
     /* Participants */
     .p-row {
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; flex-wrap: wrap; /* issue #22 */
+      gap: 8px 12px;
       padding: 10px 0; border-bottom: 1px solid var(--border);
     }
     .p-row:last-child { border-bottom: none; }
@@ -88,7 +91,7 @@
       font-size: 13px; font-weight: 700; color: #000; flex-shrink: 0;
     }
     .p-banned { opacity: .4; }
-    .p-name { flex: 1; font-weight: 600; font-size: 14px; }
+    .p-name { flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-word; font-weight: 600; font-size: 14px; }
     .p-score { font-size: 13px; color: var(--accent); font-weight: 700; margin-right: 8px; }
     .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
     .badge-red { background: rgba(224,85,85,.12); color: var(--red); border: 1px solid rgba(224,85,85,.25); }

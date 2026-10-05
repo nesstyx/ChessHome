@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Межклубные турниры — Chess Home</title>
+<title data-i18n="interclub.page_title">Межклубные турниры — Chess Home</title>
 <meta name="description" content="Межклубные турниры Chess Home — клубы сходятся в общей битве">
 <link rel="stylesheet" href="/css/main.css">
-<link rel="icon" type="image/png" href="../img/logo/favicon.png">
+<link rel="icon" type="image/png" href="/img/logo/favicon.png">
 <style>
   body { background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-body); }
 
@@ -123,7 +123,7 @@
   /* ── GRID / CARDS ── */
   .ict-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); /* issue #22: не выходит за экран <380px */
     gap: 18px;
   }
   .ict-card {
@@ -417,32 +417,32 @@
 
 <div class="ict-page">
 
-  <a href="/tournaments" class="ict-back-link">← Все турниры</a>
+  <a href="/tournaments" class="ict-back-link" data-i18n="interclub.back_all">← Все турниры</a>
 
   <div class="ict-hero">
     <div class="ict-hero-bg-text">🏰</div>
     <div class="ict-hero-top">
       <div class="ict-hero-icon">🏰</div>
       <div class="ict-hero-info">
-        <div class="ict-eyebrow">Игра · Межклубные турниры</div>
-        <h1 class="ict-title">Клубы Chess Home сходятся в общей битве</h1>
-        <p class="ict-sub">Несколько клубов заявлены как команды. Играйте за клуб, в котором состоите — участники одной команды друг с другом не встречаются, а очки идут в общий командный зачёт.</p>
+        <div class="ict-eyebrow" data-i18n="interclub.game_label">Игра · Межклубные турниры</div>
+        <h1 class="ict-title" data-i18n="interclub.title">Клубы Chess Home сходятся в общей битве</h1>
+        <p class="ict-sub" data-i18n="interclub.subtitle">Несколько клубов заявлены как команды. Играйте за клуб, в котором состоите — участники одной команды друг с другом не встречаются, а очки идут в общий командный зачёт.</p>
       </div>
-      <button class="btn btn-primary" id="btn-open-create" style="display:none" onclick="openCreateModal()">➕ Создать турнир</button>
+      <button class="btn btn-primary" id="btn-open-create" style="display:none" data-i18n="interclub.create" onclick="openCreateModal()">➕ Создать турнир</button>
     </div>
   </div>
 
   <div class="ict-tabs">
-    <button class="ict-tab active" data-filter="all" onclick="setFilter('all')">Все</button>
-    <button class="ict-tab" data-filter="upcoming" onclick="setFilter('upcoming')">🕐 Скоро</button>
-    <button class="ict-tab" data-filter="active" onclick="setFilter('active')">⚡ Идут</button>
-    <button class="ict-tab" data-filter="finished" onclick="setFilter('finished')">🏁 Завершены</button>
+    <button class="ict-tab active" data-filter="all" data-i18n="interclub.tab_all" onclick="setFilter('all')">Все</button>
+    <button class="ict-tab" data-filter="upcoming" data-i18n="interclub.tab_soon" onclick="setFilter('upcoming')">🕐 Скоро</button>
+    <button class="ict-tab" data-filter="active" data-i18n="interclub.tab_active" onclick="setFilter('active')">⚡ Идут</button>
+    <button class="ict-tab" data-filter="finished" data-i18n="interclub.tab_finished" onclick="setFilter('finished')">🏁 Завершены</button>
   </div>
 
   <div id="ict-list">
     <div style="text-align:center;padding:80px 0;color:var(--text-muted)">
       <div style="font-size:48px;margin-bottom:16px">⏳</div>
-      <div>Загружаем турниры...</div>
+      <div data-i18n="interclub.loading">Загружаем турниры...</div>
     </div>
   </div>
 </div>
@@ -451,20 +451,20 @@
 <div class="modal-overlay" id="edit-modal">
   <div class="modal-box">
     <div class="modal-header">
-      <div class="modal-title" id="edit-modal-title">🏰 Создать межклубный турнир</div>
+      <div class="modal-title" id="edit-modal-title" data-i18n="interclub.create_title">🏰 Создать межклубный турнир</div>
       <button class="modal-close" onclick="closeEditModal()">✕</button>
     </div>
     <div class="form-grid">
       <div class="form-group full">
-        <label class="form-label">Название *</label>
-        <input type="text" class="form-input" id="edit-name" maxlength="60" placeholder="Кубок клубов Chess Home">
+        <label class="form-label" data-i18n="interclub.name_label">Название *</label>
+        <input type="text" class="form-input" id="edit-name" maxlength="60" data-i18n-placeholder="interclub.name_ph" placeholder="Кубок клубов Chess Home">
       </div>
       <div class="form-group full">
-        <label class="form-label">Описание</label>
-        <textarea class="form-textarea" id="edit-desc" maxlength="1000" style="min-height:70px;" placeholder="Правила, регламент, призы..."></textarea>
+        <label class="form-label" data-i18n="interclub.desc_label">Описание</label>
+        <textarea class="form-textarea" id="edit-desc" maxlength="1000" style="min-height:70px;" data-i18n-placeholder="interclub.desc_ph" placeholder="Правила, регламент, призы..."></textarea>
       </div>
       <div class="form-group">
-        <label class="form-label">Контроль времени</label>
+        <label class="form-label" data-i18n="interclub.time_control">Контроль времени</label>
         <select class="form-select" id="edit-tc">
           <option value="15s+0">15 сек</option>
           <option value="1+0">1+0</option><option value="1+1">1+1</option>
@@ -475,7 +475,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Длительность (мин)</label>
+        <label class="form-label" data-i18n="interclub.duration">Длительность (мин)</label>
         <select class="form-select" id="edit-duration">
           <option value="20">20</option><option value="30" selected>30</option>
           <option value="45">45</option><option value="60">60</option>
@@ -483,22 +483,22 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Дата начала * (МСК)</label>
+        <label class="form-label" data-i18n="interclub.start_time">Дата начала * (МСК)</label>
         <input type="datetime-local" class="form-input" id="edit-starts-at">
       </div>
       <div class="form-group">
-        <label class="form-label">Мин. рейтинг</label>
+        <label class="form-label" data-i18n="interclub.rating_min">Мин. рейтинг</label>
         <input type="number" class="form-input" id="edit-min-rating" min="0" max="3000" placeholder="0">
       </div>
       <div class="form-group">
-        <label class="form-label">Макс. рейтинг</label>
+        <label class="form-label" data-i18n="interclub.rating_max">Макс. рейтинг</label>
         <input type="number" class="form-input" id="edit-max-rating" min="0" max="3000" placeholder="0 = ∞">
       </div>
 
       <div class="form-group full">
-        <label class="form-label">Команды-клубы (минимум 2, максимум 175)</label>
+        <label class="form-label" data-i18n="interclub.teams_label">Команды-клубы (минимум 2, максимум 175)</label>
         <div class="team-search-wrap">
-          <input type="text" class="form-input" id="team-search-input" placeholder="Поиск клуба по названию..." oninput="onTeamSearchInput()" onfocus="onTeamSearchInput()">
+          <input type="text" class="form-input" id="team-search-input" data-i18n-placeholder="interclub.team_search_ph" placeholder="Поиск клуба по названию..." oninput="onTeamSearchInput()" onfocus="onTeamSearchInput()">
           <div class="team-search-results" id="team-search-results"></div>
         </div>
         <div class="team-counter" id="team-counter">Выбрано команд: 0 / 175</div>
@@ -506,8 +506,8 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeEditModal()">Отмена</button>
-      <button class="btn-submit" id="btn-edit-submit" onclick="submitTournamentForm()">💾 Сохранить</button>
+      <button class="btn-cancel" data-i18n="interclub.cancel" onclick="closeEditModal()">Отмена</button>
+      <button class="btn-submit" id="btn-edit-submit" data-i18n="interclub.save" onclick="submitTournamentForm()">💾 Сохранить</button>
     </div>
   </div>
 </div>
@@ -516,16 +516,16 @@
 <div class="modal-overlay" id="team-modal">
   <div class="modal-box" style="max-width:460px;">
     <div class="modal-header">
-      <div class="modal-title">🎽 Выберите команду</div>
+      <div class="modal-title" data-i18n="interclub.select_team">🎽 Выберите команду</div>
       <button class="modal-close" onclick="closeTeamModal()">✕</button>
     </div>
-    <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;">
+    <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;" data-i18n="interclub.select_team_desc">
       Играть можно только за клуб, участником которого вы состоите. Выбор команды после первой сыгранной партии изменить нельзя.
     </p>
     <div class="team-select-list" id="team-select-list"></div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeTeamModal()">Отмена</button>
-      <button class="btn-submit" id="btn-team-confirm" onclick="confirmTeamSelection()">✅ Участвовать</button>
+      <button class="btn-cancel" data-i18n="interclub.cancel" onclick="closeTeamModal()">Отмена</button>
+      <button class="btn-submit" id="btn-team-confirm" data-i18n="interclub.confirm_join" onclick="confirmTeamSelection()">✅ Участвовать</button>
     </div>
   </div>
 </div>
@@ -548,6 +548,14 @@ let selectedTeams = [];    // [{id, name, memberCount}] — выбранные �
 
 let joinTournamentId = null;
 let joinSelectedTeamId = null;
+
+// ── i18n helpers (словарь подгружается header.js через /js/i18n.js) ──
+function T(key, vars) { return (window.CH_I18N && window.CH_I18N.t) ? CH_I18N.t(key, vars) : key; }
+async function waitI18nReady() {
+  let tries = 0;
+  while (!(window.CH_I18N && window.CH_I18N.onReady) && tries < 100) { await new Promise(r => setTimeout(r, 50)); tries++; }
+  if (window.CH_I18N && window.CH_I18N.onReady) await new Promise(r => CH_I18N.onReady(r));
+}
 
 async function safeJson(res) {
   try { return await res.json(); }
@@ -592,6 +600,7 @@ function formatMskDateTime(ts) {
 
 // ── INIT ──
 async function init() {
+  await waitI18nReady();
   try {
     const r = await fetch(API + '/me', { credentials: 'same-origin' });
     if (r.ok) currentUser = await safeJson(r);
@@ -644,7 +653,7 @@ async function loadTournaments() {
     document.getElementById('ict-list').innerHTML = `
       <div class="ict-empty">
         <div class="ict-empty-icon">⚠️</div>
-        <div>Не удалось загрузить турниры</div>
+        <div>${T('interclub.load_error')}</div>
       </div>`;
   }
 }
@@ -664,7 +673,7 @@ function renderList() {
     el.innerHTML = `
       <div class="ict-empty">
         <div class="ict-empty-icon">🏰</div>
-        <div>${allTournaments.length ? 'Нет турниров в этой категории' : 'Межклубных турниров пока нет'}</div>
+        <div>${allTournaments.length ? T('interclub.no_tournaments') : T('interclub.no_tournaments_yet')}</div>
       </div>`;
     return;
   }
@@ -673,7 +682,7 @@ function renderList() {
 }
 
 function buildCard(t) {
-  const statusLabel = { active: 'Идёт', upcoming: 'Скоро', finished: 'Завершён' }[t.status] || t.status;
+  const statusLabel = { active: T('interclub.status_active'), upcoming: T('interclub.status_soon'), finished: T('interclub.status_finished') }[t.status] || t.status;
   const statusIcon  = { active: '⚡', upcoming: '🕐', finished: '🏁' }[t.status];
 
   const isAdmin = currentUser && currentUser.role === 'admin';
@@ -686,38 +695,38 @@ function buildCard(t) {
 
   const myTeam = myPart ? teams.find(tm => tm.id === myPart.teamId) : null;
   const myTeamBanner = myPart
-    ? `<div class="ict-my-team-banner">🎽 Вы играете за <b>${escHtml(myTeam ? myTeam.name : 'команду')}</b> · очки: ${myPart.score || 0}</div>`
+    ? `<div class="ict-my-team-banner">🎽 ${T('interclub.playing_for')} <b>${escHtml(myTeam ? myTeam.name : T('interclub.team_fallback'))}</b> · ${T('interclub.score_label')}: ${myPart.score || 0}</div>`
     : '';
 
   const shownTeams = teams.slice(0, 6);
   const teamsHtml = shownTeams.map(tm => `
-    <a href="/clubs/${escHtml(tm.id)}" class="ict-team-chip${myPart && myPart.teamId === tm.id ? ' mine' : ''}" title="${escHtml(tm.name)} · ${tm.memberCount} чел.">
+    <a href="/clubs/${escHtml(tm.id)}" class="ict-team-chip${myPart && myPart.teamId === tm.id ? ' mine' : ''}" title="${escHtml(tm.name)} · ${tm.memberCount} ${T('interclub.players_count')}">
       <span class="tname">${escHtml(tm.name)}</span>
     </a>`).join('') + (teams.length > 6 ? `<span class="ict-team-more">+${teams.length - 6} ещё</span>` : '');
 
   const standingsTop = standings.slice(0, 3);
   const standingsHtml = standingsTop.length ? `
     <div class="ict-standings">
-      <div class="ict-standings-title">🏆 Командный зачёт</div>
+      <div class="ict-standings-title">${T('interclub.standings_title')}</div>
       ${standingsTop.map((s, i) => `
         <div class="ict-standings-row">
           <span class="ict-standings-rank">${i + 1}</span>
           <span class="ict-standings-name">${escHtml(s.teamName)}</span>
           <span class="ict-standings-score">${s.score}</span>
         </div>`).join('')}
-      ${standings.length > 3 ? `<div class="ict-standings-more">и ещё ${standings.length - 3} команд(ы)</div>` : ''}
+      ${standings.length > 3 ? `<div class="ict-standings-more">${T('interclub.and_more_teams', { n: standings.length - 3 })}</div>` : ''}
     </div>` : '';
 
   // ── Кнопка участия/выхода ──
   let actionBtn = '';
   if (!currentUser) {
-    actionBtn = `<button class="btn btn-secondary" disabled>Войдите чтобы участвовать</button>`;
+    actionBtn = `<button class="btn btn-secondary" disabled>${T('interclub.login_to_join')}</button>`;
   } else if (t.status === 'finished') {
     actionBtn = '';
   } else if (myPart) {
-    actionBtn = `<button class="btn btn-danger" onclick="leaveTournamentCard('${t.id}')">🚪 Покинуть турнир</button>`;
+    actionBtn = `<button class="btn btn-danger" onclick="leaveTournamentCard('${t.id}')">${T('interclub.leave')}</button>`;
   } else {
-    actionBtn = `<button class="btn btn-primary" onclick="joinFlow('${t.id}')">⚔️ Участвовать</button>`;
+    actionBtn = `<button class="btn btn-primary" onclick="joinFlow('${t.id}')">${T('interclub.join')}</button>`;
   }
 
   return `
@@ -737,8 +746,8 @@ function buildCard(t) {
       <div class="ict-meta">
         <div class="ict-meta-item">⏱ <b style="font-family:var(--font-mono)">${escHtml(t.timeControl)}</b></div>
         ${startsAtStr ? `<div class="ict-meta-item">📅 <b>${escHtml(startsAtStr)}</b></div>` : ''}
-        <div class="ict-meta-item">🛡 <b>${teams.length}</b> команд</div>
-        <div class="ict-meta-item">👥 <b>${parts.length}</b> участников</div>
+        <div class="ict-meta-item">🛡 <b>${teams.length}</b> ${T('interclub.teams')}</div>
+        <div class="ict-meta-item">👥 <b>${parts.length}</b> ${T('interclub.players_count')}</div>
         ${(t.minRating || (t.maxRating && t.maxRating < 9999)) ? `<div class="ict-meta-item">⭐ <b>${t.minRating||0}–${t.maxRating>=9999?'∞':t.maxRating}</b></div>` : ''}
       </div>
 
@@ -748,7 +757,7 @@ function buildCard(t) {
       ${myTeamBanner}
 
       <div class="ict-card-actions">
-        <a href="/tournament/interclub/${t.id}" class="btn btn-secondary">Подробнее →</a>
+        <a href="/tournament/interclub/${t.id}" class="btn btn-secondary">${T('interclub.details')}</a>
         ${actionBtn}
       </div>
     </div>`;
@@ -756,18 +765,18 @@ function buildCard(t) {
 
 // ── JOIN FLOW ──
 async function joinFlow(id) {
-  if (!currentUser) { toast('Войдите в аккаунт', 'error'); return; }
+  if (!currentUser) { toast(T('common.login_required'), 'error'); return; }
   try {
     const r = await fetch(API + '/tournaments/' + id + '/join', { method: 'POST', credentials: 'same-origin' });
     const data = await safeJson(r);
     if (r.ok) {
-      toast('Вы в турнире! 🎉 Ждите начала', 'success');
+      toast(T('interclub.joined_toast'), 'success');
       loadTournaments();
       return;
     }
     if (data.needTeamSelection) {
       if (!data.teams || !data.teams.length) {
-        toast('Вы не состоите ни в одном клубе, который участвует в этом турнире', 'error');
+        toast(T('interclub.no_team_toast'), 'error');
         return;
       }
       openTeamModal(id, data.teams);
@@ -800,7 +809,7 @@ function closeTeamModal() {
   joinSelectedTeamId = null;
 }
 async function confirmTeamSelection() {
-  if (!joinSelectedTeamId) { toast('Выберите команду', 'error'); return; }
+  if (!joinSelectedTeamId) { toast(T('interclub.select_team_first'), 'error'); return; }
   const btn = document.getElementById('btn-team-confirm');
   btn.disabled = true;
   try {
@@ -812,7 +821,7 @@ async function confirmTeamSelection() {
     });
     const data = await safeJson(r);
     if (!r.ok) throw new Error(data.error || 'Ошибка');
-    toast('Вы в турнире! 🎉 Ждите начала', 'success');
+    toast(T('interclub.joined_toast'), 'success');
     closeTeamModal();
     loadTournaments();
   } catch (e) {
@@ -823,12 +832,12 @@ async function confirmTeamSelection() {
 }
 
 async function leaveTournamentCard(id) {
-  if (!confirm('Покинуть турнир?')) return;
+  if (!confirm(T('interclub.leave_confirm'))) return;
   try {
     const r = await fetch(API + '/tournaments/' + id + '/leave', { method: 'POST', credentials: 'same-origin' });
     const data = await safeJson(r);
     if (!r.ok) throw new Error(data.error || 'Ошибка');
-    toast('Вы покинули турнир', 'success');
+    toast(T('interclub.left_toast'), 'success');
     loadTournaments();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -846,7 +855,7 @@ async function fetchClubsIfNeeded() {
 function openCreateModal() {
   editingId = null;
   selectedTeams = [];
-  document.getElementById('edit-modal-title').textContent = '🏰 Создать межклубный турнир';
+  document.getElementById('edit-modal-title').textContent = T('interclub.create_title');
   document.getElementById('edit-name').value = '';
   document.getElementById('edit-desc').value = '';
   document.getElementById('edit-tc').value = '3+2';
@@ -866,7 +875,7 @@ function openEditModal(id) {
   editingId = id;
   selectedTeams = (t.teams || []).map(tm => ({ id: tm.id, name: tm.name, memberCount: tm.memberCount }));
 
-  document.getElementById('edit-modal-title').textContent = '✏️ Редактировать турнир';
+  document.getElementById('edit-modal-title').textContent = T('interclub.edit_title');
   document.getElementById('edit-name').value = t.name || '';
   document.getElementById('edit-desc').value = t.description || '';
   document.getElementById('edit-tc').value = t.timeControl || '3+2';
@@ -935,7 +944,7 @@ function renderTeamChips() {
       <span class="team-chip-remove" onclick="removeTeam('${escHtml(t.id)}')">✕</span>
     </span>`).join('');
   const counter = document.getElementById('team-counter');
-  counter.textContent = `Выбрано команд: ${selectedTeams.length} / 175`;
+  counter.textContent = T('interclub.teams_selected', { n: selectedTeams.length });
   counter.classList.toggle('limit', selectedTeams.length >= 175);
 }
 
@@ -962,7 +971,7 @@ async function submitTournamentForm() {
 
   const btn = document.getElementById('btn-edit-submit');
   btn.disabled = true;
-  btn.textContent = 'Сохранение...';
+  btn.textContent = T('interclub.saving');
   try {
     const url = editingId ? (API + '/tournaments/' + editingId + '/edit') : (API + '/tournaments/interclub');
     const r = await fetch(url, {
@@ -980,7 +989,7 @@ async function submitTournamentForm() {
     toast(e.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = '💾 Сохранить';
+    btn.textContent = T('interclub.save');
   }
 }
 
@@ -997,6 +1006,11 @@ async function deleteTournamentCard(id) {
 
 document.getElementById('edit-modal').addEventListener('click', function (e) { if (e.target === this) closeEditModal(); });
 document.getElementById('team-modal').addEventListener('click', function (e) { if (e.target === this) closeTeamModal(); });
+
+// Смена языка — перерисовываем список (паттерн blog.html)
+document.addEventListener('ch-lang-changed', () => {
+  if (allTournaments.length) renderList();
+});
 
 init();
 </script>

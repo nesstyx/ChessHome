@@ -7,6 +7,15 @@ const BoardEditor = (() => {
   let selectedPiece = null; // {type, color} | 'eraser' | null
   let editorTurn = 'w';
 
+  // i18n-хелпер: словарь может быть ещё не загружен — тогда русский fallback
+  function T(key, fallback) {
+    try {
+      const v = window.CH_I18N ? window.CH_I18N.t(key) : undefined;
+      if (v && v !== key) return v;
+    } catch (e) { /* i18n недоступен */ }
+    return fallback !== undefined ? fallback : key;
+  }
+
   // ─── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────
   function initFromStart() {
     const st = ChessEngine.parseFEN(ChessEngine.START_FEN);
@@ -168,10 +177,27 @@ const BoardEditor = (() => {
   }
 
   function boardToState() {
+    // Права на рокировку вычисляем по фактической расстановке (issue #23):
+    // раньше всегда писались KQkq, из-за чего движок получал FEN с правами
+    // на рокировку при отсутствии ладей/короля на исходных клетках.
+    const castling = { K: false, Q: false, k: false, q: false };
+    const is = (sq, type, color) => {
+      const p = board[sq];
+      return !!p && p.type === type && p.color === color;
+    };
+    if (is(4, 'K', 'w')) {            // e1
+      if (is(7, 'R', 'w'))  castling.K = true;  // h1
+      if (is(0, 'R', 'w'))  castling.Q = true;  // a1
+    }
+    if (is(60, 'K', 'b')) {           // e8
+      if (is(63, 'R', 'b')) castling.k = true;  // h8
+      if (is(56, 'R', 'b')) castling.q = true;  // a8
+    }
+
     return {
       board: [...board],
       turn: editorTurn,
-      castling: { K: true, Q: true, k: true, q: true },
+      castling,
       enPassant: null,
       halfmove: 0,
       fullmove: 1,
@@ -190,29 +216,33 @@ const BoardEditor = (() => {
       editorTurn = state.turn;
       deselectAll();
       render();
-      toast('Позиция загружена', 'success');
-    } catch { toast('Неверный FEN', 'error'); }
+      toast(T('editor.fen_loaded', 'Позиция загружена'), 'success');
+    } catch { toast(T('editor.fen_invalid', 'Неверный FEN'), 'error'); }
   }
 
   // ─── АНАЛИЗ ───────────────────────────────────────────────
-  // ФИКС: передаём FEN текущей позиции редактора, а не начальную
+  // Передаём FEN текущей позиции редактора на страницу анализа через
+  // sessionStorage (issue #23): хук pages['analysis'] заберёт его ровно один
+  // раз и запустит движок именно с этой позицией. Раньше позиция грузилась
+  // в доску до переключения страницы, после чего хук сбрасывал её на стартовую.
   function analyzePosition() {
-    const state = boardToState();
-    const fen = ChessEngine.toFEN(state);
+    // Для анализа нужны оба короля — иначе позиция невалидна
+    const kings = board.filter(p => p && p.type === 'K').length;
+    if (kings !== 2) {
+      toast(T('editor.analysis_needs_kings', 'Для анализа нужны оба короля на доске'), 'error');
+      return;
+    }
 
-    // Сначала загружаем FEN в chessBoard
-    chessBoard.loadFEN(fen);
+    const fen = ChessEngine.toFEN(boardToState());
+    try {
+      sessionStorage.setItem('ch_analysis_fen', fen);
+    } catch (e) {
+      toast(T('editor.analysis_failed', 'Не удалось передать позицию в анализ'), 'error');
+      return;
+    }
 
-    // Переключаем страницу
     showPage('analysis');
-
-    // Запускаем анализ движком с нужным FEN
-    if (!StockfishAnalyzer.isReady()) StockfishAnalyzer.init();
-    setTimeout(() => {
-      StockfishAnalyzer.analyze(fen, 20);
-    }, 300);
-
-    toast('Анализ позиции запущен!', 'success');
+    toast(T('editor.analysis_started', 'Анализ позиции запущен!'), 'success');
   }
 
   // ─── ПРОЧЕЕ ───────────────────────────────────────────────

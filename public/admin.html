@@ -743,7 +743,30 @@ function renderUserList(users, container) {
     st.textContent = '★' + u.rating + ' · ' + u.gamesPlayed + ' партий · ' + u.wins + 'W/' + u.losses + 'L';
     info.appendChild(nm); info.appendChild(st); row.appendChild(info);
     const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
-    const canGrantVip = currentUser && ['chesshome','marina64'].includes(currentUser.username.toLowerCase());
+    // VIP-грант: роль 'admin' с сервера (issue #27) либо legacy-ники bootstrap
+    const canGrantVip = currentUser && (currentUser.role === 'admin' || ['chesshome','marina64'].includes(currentUser.username.toLowerCase()));
+    // Роль администратора — выдача/снятие в рантайме (issue #27)
+    if (u.username !== currentUser.username) {
+      if (u.role === 'admin') {
+        const ra = document.createElement('button'); ra.className='btn btn-ghost btn-sm'; ra.title='Снять роль администратора'; ra.textContent='👑 Снять админа';
+        ra.onclick = async () => {
+          if (!confirm('Снять роль администратора у ' + u.username + '?')) return;
+          ra.disabled = true;
+          try { await apiPost('/admin/role', { username: u.username, grant: false }); toast('Роль администратора снята', 'success'); loadAdminUsers(); }
+          catch(e) { toast('Ошибка: ' + e.message, 'error'); ra.disabled = false; }
+        };
+        btns.appendChild(ra);
+      } else if (!u.banned) {
+        const ga = document.createElement('button'); ga.className='btn btn-ghost btn-sm'; ga.title='Выдать роль администратора'; ga.textContent='👑 Админ';
+        ga.onclick = async () => {
+          if (!confirm('Выдать роль администратора ' + u.username + '?')) return;
+          ga.disabled = true;
+          try { await apiPost('/admin/role', { username: u.username, grant: true }); toast('Роль администратора выдана', 'success'); loadAdminUsers(); }
+          catch(e) { toast('Ошибка: ' + e.message, 'error'); ga.disabled = false; }
+        };
+        btns.appendChild(ga);
+      }
+    }
     if (canGrantVip) {
       if (u.vip) {
         const rv = document.createElement('button'); rv.className='btn btn-ghost btn-sm'; rv.textContent='✨ Снять VIP';

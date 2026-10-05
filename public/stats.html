@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chess Home — Статистика</title>
+  <title data-i18n="stats.doc_title">Chess Home — Статистика</title>
   <link rel="icon" href="/img/logo/favicon.png">
+  <script src="/js/i18n.js"></script>
   <script src="/js/header.js"></script>
   <style>
 
@@ -332,16 +333,20 @@ body {
 
 <div class="stats-hero">
   <span class="stats-hero-crown">♚</span>
-  <h1>Статистика сайта</h1>
-  <div class="stats-hero-sub">Всё что происходит на Chess Home — в живых цифрах</div>
+  <h1 data-i18n="stats.h1">Статистика сайта</h1>
+  <div class="stats-hero-sub" data-i18n="stats.subtitle">Всё что происходит на Chess Home — в живых цифрах</div>
   <div class="stats-born-badge">
     <div class="pulse-dot"></div>
-    Основан 30.03.2026 &nbsp;·&nbsp; Работает уже <span id="s-days" style="font-size:18px;margin:0 2px">…</span> дней
+    <span data-i18n="stats.founded">Основан 30.03.2026</span>
+    &nbsp;·&nbsp;
+    <span data-i18n="stats.uptime_prefix">Работает уже</span>
+    <span id="s-days" style="font-size:18px;margin:0 2px">…</span>
+    <span data-i18n="stats.days_suffix">дней</span>
   </div>
 </div>
 
 <div class="stats-wrap" id="stats-wrap">
-  <div class="s-spinner">Загружаем статистику…</div>
+  <div class="s-spinner" data-i18n="stats.loading">Загружаем статистику…</div>
 </div>
 
 <script>
@@ -351,7 +356,21 @@ body {
 ════════════════════════════════════════════════════ */
 
 // ── Утилиты ───────────────────────────────────────────────────
-function fmt(n) { return (n||0).toLocaleString('ru-RU'); }
+// i18n-хелпер: словарь может быть ещё не загружен — тогда русский fallback
+function T(key, fallback) {
+  try {
+    const v = window.CH_I18N ? window.CH_I18N.t(key) : undefined;
+    if (v && v !== key) return v;
+  } catch (e) { /* i18n недоступен */ }
+  return fallback !== undefined ? fallback : key;
+}
+
+function localeTag() {
+  try { return (window.CH_I18N ? CH_I18N.getLang() : 'ru') === 'en' ? 'en-US' : 'ru-RU'; }
+  catch (e) { return 'ru-RU'; }
+}
+
+function fmt(n) { return (n||0).toLocaleString(localeTag()); }
 
 function animCount(el, target, ms = 1600) {
   if (!el) return;
@@ -359,15 +378,15 @@ function animCount(el, target, ms = 1600) {
   const run = now => {
     const p = Math.min((now - start) / ms, 1);
     const e = 1 - Math.pow(2, -10 * p); // easeOutExpo
-    el.textContent = Math.round(target * e).toLocaleString('ru-RU');
+    el.textContent = Math.round(target * e).toLocaleString(localeTag());
     if (p < 1) requestAnimationFrame(run);
-    else el.textContent = target.toLocaleString('ru-RU');
+    else el.textContent = target.toLocaleString(localeTag());
   };
   requestAnimationFrame(run);
 }
 
 function bars(items, labelKey, valKey, colors) {
-  if (!items || !items.length) return '<div style="color:var(--text-muted);font-size:13px">Нет данных</div>';
+  if (!items || !items.length) return `<div style="color:var(--text-muted);font-size:13px">${T('stats.no_data','Нет данных')}</div>`;
   const max = Math.max(...items.map(r => parseInt(r[valKey])||0), 1);
   return items.map((r, i) => {
     const v   = parseInt(r[valKey])||0;
@@ -386,7 +405,7 @@ function bars(items, labelKey, valKey, colors) {
 }
 
 function lb(items, valKey, suffix = '') {
-  if (!items || !items.length) return '<div style="color:var(--text-muted);font-size:13px">Нет данных</div>';
+  if (!items || !items.length) return `<div style="color:var(--text-muted);font-size:13px">${T('stats.no_data','Нет данных')}</div>`;
   const medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
   return items.map((it, i) => `
     <div class="lb-item">
@@ -435,9 +454,9 @@ function donut(gamesByResult) {
   </svg>`;
 
   const legend = [
-    { c:'#e2e8f0', label:'Белые побеждают', n: w },
-    { c:'#94a3b8', label:'Ничья',           n: d },
-    { c:'#334155', label:'Чёрные побеждают', n: b },
+    { c:'#e2e8f0', label:T('stats.white_wins','Белые побеждают'),  n: w },
+    { c:'#94a3b8', label:T('stats.draws','Ничья'),                 n: d },
+    { c:'#334155', label:T('stats.black_wins','Чёрные побеждают'), n: b },
   ].map(it => `
     <div class="donut-leg-item">
       <div class="donut-dot" style="background:${it.c}"></div>
@@ -460,7 +479,8 @@ async function loadStats() {
     });
     if (!res.ok) throw new Error(res.status);
     const D = await res.json();
-    const T = D.totals, M = D.misc, L = D.leaders, Ch = D.charts;
+    // ВАЖНО: раньше переменная называлась T и затеняла i18n-хелпер T()
+    const TOT = D.totals, M = D.misc, L = D.leaders, Ch = D.charts;
 
     // Дни
     document.getElementById('s-days').textContent = D.meta.daysAlive;
@@ -470,28 +490,28 @@ async function loadStats() {
       <div class="live-strip">
         <div class="live-dot"></div>
         <div class="live-strip-text">
-          Сегодня сыграно <strong id="today-games">…</strong> партий &nbsp;·&nbsp;
-          Решено задач сегодня: <strong id="today-puzzles">…</strong> &nbsp;·&nbsp;
-          Всего действий за 30 дней: <strong>${fmt((Ch.gamesByDay||[]).reduce((s,r)=>s+parseInt(r.cnt),0))}</strong>
+          ${T('stats.live_today_games','Сегодня сыграно')} <strong id="today-games">…</strong> ${T('stats.live_today_games_suffix','партий')} &nbsp;·&nbsp;
+          ${T('stats.live_today_puzzles','Решено задач сегодня:')} <strong id="today-puzzles">…</strong> &nbsp;·&nbsp;
+          ${T('stats.live_actions_30d','Всего действий за 30 дней:')} <strong>${fmt((Ch.gamesByDay||[]).reduce((s,r)=>s+parseInt(r.cnt),0))}</strong>
         </div>
       </div>`;
 
     // ── Счётчики ──────────────────────────────────────────────
     const counters = [
-      { id:'c-users',    icon:'👥', label:'Игроков',         val: T.users,          c:'#7c3aed' },
-      { id:'c-games',    icon:'♟️', label:'Партий сыграно',  val: T.games,           c:'#3b82f6' },
-      { id:'c-messages', icon:'💬', label:'Сообщений',       val: T.messages,        c:'#10b981' },
-      { id:'c-puzzlesol',icon:'🧩', label:'Задач решено',    val: T.puzzleSolved,    c:'#f59e0b' },
-      { id:'c-puztry',   icon:'🎯', label:'Попыток в задачах',val:T.puzzleAttempts,  c:'#f97316' },
-      { id:'c-posts',    icon:'📰', label:'Статей в блоге',  val: T.blogPosts,       c:'#ef4444' },
-      { id:'c-comments', icon:'💭', label:'Комментариев',    val: T.blogComments,    c:'#ec4899' },
-      { id:'c-likes',    icon:'❤️', label:'Лайков в блоге',  val: T.blogLikes,       c:'#e11d48' },
-      { id:'c-views',    icon:'👁️', label:'Просмотров блога',val: T.blogViews,       c:'#06b6d4' },
-      { id:'c-forums',   icon:'📋', label:'Тем на форуме',   val: T.forums,          c:'#84cc16' },
-      { id:'c-freplies', icon:'✏️', label:'Ответов на форуме',val:T.forumReplies,    c:'#a3e635' },
-      { id:'c-clubs',    icon:'🛡️', label:'Клубов',          val: T.clubs,           c:'#d946ef' },
-      { id:'c-tours',    icon:'🏆', label:'Турниров',        val: T.tournaments,     c:'#fbbf24' },
-      { id:'c-dm',       icon:'📨', label:'Личных сообщений',val: T.dmMessages,      c:'#38bdf8' },
+      { id:'c-users',    icon:'👥', label:T('stats.c_users','Игроков'),               val: TOT.users,          c:'#7c3aed' },
+      { id:'c-games',    icon:'♟️', label:T('stats.c_games','Партий сыграно'),        val: TOT.games,          c:'#3b82f6' },
+      { id:'c-messages', icon:'💬', label:T('stats.c_messages','Сообщений'),          val: TOT.messages,       c:'#10b981' },
+      { id:'c-puzzlesol',icon:'🧩', label:T('stats.c_puzzle_solved','Задач решено'),  val: TOT.puzzleSolved,   c:'#f59e0b' },
+      { id:'c-puztry',   icon:'🎯', label:T('stats.c_puzzle_attempts','Попыток в задачах'), val:TOT.puzzleAttempts, c:'#f97316' },
+      { id:'c-posts',    icon:'📰', label:T('stats.c_blog_posts','Статей в блоге'),   val: TOT.blogPosts,      c:'#ef4444' },
+      { id:'c-comments', icon:'💭', label:T('stats.c_blog_comments','Комментариев'),  val: TOT.blogComments,   c:'#ec4899' },
+      { id:'c-likes',    icon:'❤️', label:T('stats.c_blog_likes','Лайков в блоге'),   val: TOT.blogLikes,      c:'#e11d48' },
+      { id:'c-views',    icon:'👁️', label:T('stats.c_blog_views','Просмотров блога'), val: TOT.blogViews,      c:'#06b6d4' },
+      { id:'c-forums',   icon:'📋', label:T('stats.c_forum_topics','Тем на форуме'),  val: TOT.forums,         c:'#84cc16' },
+      { id:'c-freplies', icon:'✏️', label:T('stats.c_forum_replies','Ответов на форуме'), val: TOT.forumReplies, c:'#a3e635' },
+      { id:'c-clubs',    icon:'🛡️', label:T('stats.c_clubs','Клубов'),                val: TOT.clubs,          c:'#d946ef' },
+      { id:'c-tours',    icon:'🏆', label:T('stats.c_tournaments','Турниров'),        val: TOT.tournaments,    c:'#fbbf24' },
+      { id:'c-dm',       icon:'📨', label:T('stats.c_dms','Личных сообщений'),        val: TOT.dmMessages,     c:'#38bdf8' },
     ];
 
     const counterHTML = `<div class="stat-grid">${
@@ -518,22 +538,22 @@ async function loadStats() {
 
     <div class="s-row2">
       <div class="s-section">
-        <div class="s-title">🏆 Топ по рейтингу ELO</div>
-        ${lb(L.rating, 'rating', ' elo')}
+        <div class="s-title">${T('stats.top_rating','🏆 Топ по рейтингу ELO')}</div>
+        ${lb(L.rating, 'rating', ' ' + T('stats.suffix_elo','elo'))}
       </div>
       <div class="s-section">
-        <div class="s-title">🧩 Топ по задачам</div>
-        ${lb(L.puzzle, 'puzzle_rating', ' elo')}
+        <div class="s-title">${T('stats.top_puzzle','🧩 Топ по задачам')}</div>
+        ${lb(L.puzzle, 'puzzle_rating', ' ' + T('stats.suffix_elo','elo'))}
       </div>
     </div>
 
     <div class="s-row2">
       <div class="s-section">
-        <div class="s-title">♟️ Больше всех партий</div>
-        ${lb(L.games, 'games_played', ' партий')}
+        <div class="s-title">${T('stats.top_games','♟️ Больше всех партий')}</div>
+        ${lb(L.games, 'games_played', ' ' + T('stats.suffix_games','партий'))}
       </div>
       <div class="s-section">
-        <div class="s-title">⚖️ Результаты всех партий</div>
+        <div class="s-title">${T('stats.results','⚖️ Результаты всех партий')}</div>
         <div class="donut-wrap">
           ${dn.svg}
           <div class="donut-legend">${dn.legend}</div>
@@ -542,41 +562,41 @@ async function loadStats() {
     </div>
 
     <div class="s-section">
-      <div class="s-title">📅 Активность за последние 30 дней</div>
-      <div class="act-label">♟️ Партии</div>
+      <div class="s-title">${T('stats.activity_30d','📅 Активность за последние 30 дней')}</div>
+      <div class="act-label">${T('stats.act_games','♟️ Партии')}</div>
       <div class="act-chart" id="act-games">${actChart(Ch.gamesByDay, '#3b82f6')}</div>
-      <div class="act-label" style="margin-top:18px">👥 Новые игроки</div>
+      <div class="act-label" style="margin-top:18px">${T('stats.act_users','👥 Новые игроки')}</div>
       <div class="act-chart" id="act-users">${actChart(Ch.regByDay, '#10b981')}</div>
     </div>
 
     <div class="s-row2">
       <div class="s-section">
-        <div class="s-title">⏱️ Контроли времени</div>
+        <div class="s-title">${T('stats.time_controls','⏱️ Контроли времени')}</div>
         ${bars(Ch.gamesByTC, 'time_control', 'cnt', COLORS)}
       </div>
       <div class="s-section">
-        <div class="s-title">💬 Сообщения по каналам</div>
+        <div class="s-title">${T('stats.messages_by_channel','💬 Сообщения по каналам')}</div>
         ${bars([
-          { cat:'📨 Личные сообщения', n: T.dmMessages   },
-          { cat:'🌐 Глобальный чат',   n: T.chatMessages  },
-          { cat:'🛡️ Чаты клубов',      n: T.clubMessages  },
-          { cat:'💭 Комментарии блога', n: T.blogComments  },
-          { cat:'📋 Ответы на форуме',  n: T.forumReplies  },
+          { cat:'📨 ' + T('stats.ch_dms','Личные сообщения'),    n: TOT.dmMessages   },
+          { cat:'🌐 ' + T('stats.ch_global','Глобальный чат'),   n: TOT.chatMessages  },
+          { cat:'🛡️ ' + T('stats.ch_clubs','Чаты клубов'),       n: TOT.clubMessages  },
+          { cat:'💭 ' + T('stats.ch_blog','Комментарии блога'),  n: TOT.blogComments  },
+          { cat:'📋 ' + T('stats.ch_forum','Ответы на форуме'),  n: TOT.forumReplies  },
         ], 'cat', 'n', COLORS)}
       </div>
     </div>
 
     <div class="s-section">
-      <div class="s-title">🔮 Интересные факты</div>
+      <div class="s-title">${T('stats.facts','🔮 Интересные факты')}</div>
       ${[
-        { icon:'♟️', text:`В среднем в каждой партии делается <strong>${M.avgGameMoves}</strong> полуходов` },
-        { icon:'🎯', text:`Процент успешных решений задач: <strong>${M.puzzleSuccessRate}%</strong>` },
-        { icon:'📅', text:`За всё время существования сайта — примерно <strong>${M.avgGameMoves && T.games ? fmt(Math.round(T.games * M.avgGameMoves / 2)) : '?'}</strong> ходов сделано суммарно` },
-        { icon:'💬', text:`На каждого игрока в среднем приходится <strong>${T.users ? (T.messages / T.users).toFixed(1) : 0}</strong> сообщений` },
-        { icon:'🏆', text:`На каждого игрока приходится <strong>${T.users ? (T.games / T.users * 2).toFixed(1) : 0}</strong> партий в среднем` },
-        { icon:'🧩', text:`Задач попытались решить <strong>${fmt(T.puzzleAttempts)}</strong> раз, из них успешно: <strong>${fmt(T.puzzleSolved)}</strong>` },
-        { icon:'❤️', text:`В блоге поставлено <strong>${fmt(T.blogLikes)}</strong> лайков на <strong>${fmt(T.blogPosts)}</strong> статей` },
-        L.mostWins ? { icon:'🔥', text:`Больше всего побед у игрока <strong>${L.mostWins.username}</strong> — <strong>${fmt(L.mostWins.wins)}</strong>` } : null,
+        { icon:'♟️', text:T('stats.fact_avg_halfmoves','В среднем в каждой партии делается <strong>{n}</strong> полуходов').replace('{n}', M.avgGameMoves) },
+        { icon:'🎯', text:T('stats.fact_puzzle_success','Процент успешных решений задач: <strong>{n}%</strong>').replace('{n}', M.puzzleSuccessRate) },
+        { icon:'📅', text:T('stats.fact_total_moves','За всё время существования сайта — примерно <strong>{n}</strong> ходов сделано суммарно').replace('{n}', M.avgGameMoves && TOT.games ? fmt(Math.round(TOT.games * M.avgGameMoves / 2)) : '?') },
+        { icon:'💬', text:T('stats.fact_msgs_per_user','На каждого игрока в среднем приходится <strong>{n}</strong> сообщений').replace('{n}', TOT.users ? (TOT.messages / TOT.users).toFixed(1) : 0) },
+        { icon:'🏆', text:T('stats.fact_games_per_user','На каждого игрока приходится <strong>{n}</strong> партий в среднем').replace('{n}', TOT.users ? (TOT.games / TOT.users * 2).toFixed(1) : 0) },
+        { icon:'🧩', text:T('stats.fact_puzzle_attempts','Задач попытались решить <strong>{n}</strong> раз, из них успешно: <strong>{m}</strong>').replace('{n}', fmt(TOT.puzzleAttempts)).replace('{m}', fmt(TOT.puzzleSolved)) },
+        { icon:'❤️', text:T('stats.fact_likes','В блоге поставлено <strong>{n}</strong> лайков на <strong>{m}</strong> статей').replace('{n}', fmt(TOT.blogLikes)).replace('{m}', fmt(TOT.blogPosts)) },
+        L.mostWins ? { icon:'🔥', text:T('stats.fact_most_wins','Больше всего побед у игрока <strong>{u}</strong> — <strong>{n}</strong>').replace('{u}', L.mostWins.username).replace('{n}', fmt(L.mostWins.wins)) } : null,
       ].filter(Boolean).map(f => `
         <div class="fact-card">
           <span class="fact-icon">${f.icon}</span>
@@ -585,7 +605,7 @@ async function loadStats() {
     </div>
 
     <div style="text-align:center;padding:24px 0 0;color:var(--text-muted);font-size:12px">
-      Данные обновляются в реальном времени &nbsp;·&nbsp; Chess Home с 30.03.2026
+      ${T('stats.footer','Данные обновляются в реальном времени')} &nbsp;·&nbsp; Chess Home
     </div>
     `;
 
@@ -624,8 +644,8 @@ async function loadStats() {
   } catch(e) {
     console.error('[Stats]', e);
     wrap.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text-muted)">
-      ⚠️ Не удалось загрузить статистику<br>
-      <small style="margin-top:8px;display:block">${e.message}</small>
+      ${T('stats.error_load','⚠️ Не удалось загрузить статистику')}<br>
+      <small style="margin-top:8px;display:block">${String(e.message).replace(/</g,'&lt;')}</small>
     </div>`;
   }
 }
@@ -636,7 +656,11 @@ document.addEventListener('DOMContentLoaded', function() {
     CH.initHeader({ activePage: 'stats' });
     CH.setActivePage('stats');
   }
-  loadStats();
+  // Ждём словарь i18n, чтобы первый рендер был сразу на языке пользователя
+  const start = () => loadStats();
+  if (window.CH_I18N) CH_I18N.onReady(start); else start();
+  // Смена языка → полный перерендер страницы с новыми подписями
+  document.addEventListener('ch-lang-changed', () => loadStats());
   // онлайн счётчик обновляется автоматически в header.js
 });
 </script>
