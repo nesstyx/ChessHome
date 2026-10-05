@@ -1763,30 +1763,30 @@ window.loadActivity = loadActivity;
       await loadProfile(targetUsername);
     }
     init();
+
+    // ── Клубы профиля (issue #42) ────────────────────────────────
+    // API /api/clubs публичный и возвращает members для каждого клуба —
+    // фильтруем на клиенте одним запросом (клубов на платформе десятки).
+    async function loadProfileClubs(username) {
+      const card = document.getElementById('profile-clubs-card');
+      const listEl = document.getElementById('profile-clubs-list');
+      if (!card || !listEl) return;
+      try {
+        const clubs = await apiGet('/clubs');
+        const mine = (Array.isArray(clubs) ? clubs : []).filter(c => (c.members || []).some(m => String(m).toLowerCase() === String(username).toLowerCase()));
+        if (!mine.length) return; // секция остаётся скрытой
+        card.style.display = '';
+        listEl.innerHTML = mine.map(c =>
+          '<a href="/clubs/' + escapeHtml(c.id) + '" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border,rgba(255,255,255,.1));border-radius:12px;text-decoration:none;color:inherit;font-size:14px">'
+          + '<span>' + escapeHtml(c.name) + '</span>'
+          + (c.official ? '<span style="font-size:11px;color:var(--accent,#c9a84c)">★</span>' : '')
+          + '<span style="font-size:12px;color:var(--text-muted)">' + (c.memberCount || (c.members || []).length) + '</span></a>'
+        ).join('');
+      } catch {}
+    }
   </script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/ping-widget.js"></script>
 </body>
 
 </html>
-
-// ── Клубы профиля (issue #42) ────────────────────────────────
-// API /api/clubs публичный и возвращает members для каждого клуба —
-// фильтруем на клиенте одним запросом (клубов на платформе десятки).
-async function loadProfileClubs(username) {
-  const card = document.getElementById('profile-clubs-card');
-  const listEl = document.getElementById('profile-clubs-list');
-  if (!card || !listEl) return;
-  try {
-    const clubs = await apiGet('/clubs');
-    const mine = (Array.isArray(clubs) ? clubs : []).filter(c => (c.members || []).some(m => String(m).toLowerCase() === String(username).toLowerCase()));
-    if (!mine.length) return; // секция остаётся скрытой
-    card.style.display = '';
-    listEl.innerHTML = mine.map(c =>
-      '<a href="/clubs/' + escapeHtml(c.id) + '" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border,rgba(255,255,255,.1));border-radius:12px;text-decoration:none;color:inherit;font-size:14px">'
-      + '<span>' + escapeHtml(c.name) + '</span>'
-      + (c.official ? '<span style="font-size:11px;color:var(--accent,#c9a84c)">★</span>' : '')
-      + '<span style="font-size:12px;color:var(--text-muted)">' + (c.memberCount || (c.members || []).length) + '</span></a>'
-    ).join('');
-  } catch {}
-}
