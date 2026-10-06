@@ -41,15 +41,14 @@ const {
   sanitizeTournament,
   getTournamentStatus,
   verifyToken,
-  hasFullMove,
+  // hasFullMove/recordGame/updateStats/finishTournamentGame здесь больше не
+  // нужны (P1): resign/accept_draw переведены на endGameAuthoritative и
+  // сами партию не завершают.
   endGameAuthoritative,
   findSocketByUsername,
   emitToAdmins,
-  recordGame,
-  updateStats,
   tryPairTournamentPlayers,
   FIRST_MOVE_TIMEOUT,
-  finishTournamentGame,
   startGame,
   serverChess,
   limiterSocketConnect,
@@ -631,18 +630,15 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
-    // Из карт удаляем СИНХРОННО до любого await — иначе параллельный resign/timeout
-    // успевает завершить ту же партию второй раз (двойные очки/статистика).
-    activeGames.delete(gameId);
-    tournamentGames.delete(gameId);
-    const rc = game.white === socket.username ? 'white' : 'black';
-    const wc = rc === 'white' ? 'black' : 'white';
-    const winSock = findSocketByUsername(wc === 'white' ? game.white : game.black);
-    socket.emit('game_ended', { gameId, result: wc, reason: 'resign' });
-    if (winSock) winSock.emit('game_ended', { gameId, result: wc, reason: 'opponent_resign' });
-    const isTournament = !!game.tournamentId;
-    if (isTournament) { const t = tournaments.find(t => t.id === game.tournamentId); if (t) await finishTournamentGame(t, game, wc, 'resign'); }
-    else if (hasFullMove(game)) { await recordGame(game, wc, 'resign'); await updateStats(game.white, game.black, wc, game.rated !== false); }
+    // Двойной учёт (P1, устранено): хендлер больше не завершает партию сам
+    // (свой delete из карт + recordGame + updateStats + finishTournamentGame),
+    // а передаёт всё в единую авторитарную точку endGameAuthoritative — как
+    // уже делают game_over и серверный тик часов. Она защищена флагом
+    // _finishing от гонки с параллельным resign/timeout/game_over и
+    // гарантирует ровно один финал: одна запись в БД, один инкремент
+    // статистики, одни очки турнира, одно broadcast game_ended.
+    const winner = game.white === socket.username ? 'black' : 'white';
+    await endGameAuthoritative(gameId, game, winner, 'resign');
   });
 
   socket.on('offer_draw', ({ gameId }) => {
@@ -661,14 +657,9 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
-    // Из карт удаляем СИНХРОННО до любого await (см. комментарий в resign).
-    activeGames.delete(gameId);
-    tournamentGames.delete(gameId);
-    const payload = { gameId, result: 'draw', reason: 'agreement' };
-    [findSocketByUsername(game.white), findSocketByUsername(game.black)].forEach(s => s?.emit('game_ended', payload));
-    const isTournament = !!game.tournamentId;
-    if (isTournament) { const t = tournaments.find(t => t.id === game.tournamentId); if (t) await finishTournamentGame(t, game, 'draw', 'agreement'); }
-    else if (hasFullMove(game)) { await recordGame(game, 'draw', 'agreement'); await updateStats(game.white, game.black, 'draw', game.rated !== false); }
+    // Двойной учёт (P1, устранено): завершение — только через единую
+    // авторитарную точку endGameAuthoritative (см. resign выше).
+    await endGameAuthoritative(gameId, game, 'draw', 'agreement');
   });
 
   socket.on('game_chat', ({ gameId, message }) => {

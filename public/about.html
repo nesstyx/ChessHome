@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>О проекте — Chess Home</title>
@@ -96,7 +97,7 @@
 <div id="toast-container"></div>
 <script>
 const API='/api';let currentUser=null;
-function escapeHtml(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// escapeHtml (P0, унификация): общая реализация в /js/utils.js
 function getSettings(){try{return JSON.parse(localStorage.getItem('ch_settings')||'{}');}catch{return{};}}
 function applySettings(){const s=getSettings();if(s.boardLight)document.documentElement.style.setProperty('--board-light',s.boardLight);if(s.boardDark)document.documentElement.style.setProperty('--board-dark',s.boardDark);}
 // Токен теперь лежит в HttpOnly-cookie и отправляется браузером автоматически

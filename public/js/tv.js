@@ -266,9 +266,8 @@ const ChessTV = (() => {
   }
 
   // ─── УТИЛИТЫ ──────────────────────────────────────────────────
-  function escapeHtml(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
+  // escapeHtml удалена (P0, унификация): используем глобальную из /js/utils.js
+  // (tv.html подключает её до tv.js). Старая версия не экранировала апостроф '.
 
   // ─── PUBLIC API ───────────────────────────────────────────────
   return {

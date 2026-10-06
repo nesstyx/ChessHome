@@ -441,7 +441,9 @@ async function saveChatMsg(msg) {
 }
 
 async function deleteChatMsg(msgId) {
-  await db('DELETE FROM chat_messages WHERE id = $1', [msgId]);
+  // Возвращаем результат запроса: обработчику удаления нужен rowCount,
+  // чтобы отличить «сообщение было только в БД» от «нигде не найдено».
+  return await db('DELETE FROM chat_messages WHERE id = $1', [msgId]);
 }
 
 
@@ -1302,11 +1304,25 @@ const limiterQuests = new RateLimiter(60_000, 5);
 
 async function handleDeleteChatMsg(req, res) {
   await requireAdmin(req, res, async () => {
+    // Удаление из БД (P1): раньше при отсутствии сообщения в кэше globalChat
+    // отдавался 404 ДО запроса к БД, и после рестарта сервера (или вытеснения
+    // сообщения лимитом в 500) админ не мог удалить сообщение — оно навсегда
+    // оставалось в chat_messages и вновь попадало в кэш при следующем запуске.
+    // Теперь SQL-удаление выполняется всегда, а кэш чистится синхронно, если
+    // сообщение там было.
     const idx = globalChat.findIndex(m => m.id === req.params.msgId);
-    if (idx === -1) return res.status(404).json({ error: 'Не найдено' });
-    const removed = globalChat[idx];
-    globalChat.splice(idx, 1);
-    await deleteChatMsg(req.params.msgId);
+    const removed = idx !== -1 ? globalChat[idx] : null;
+    if (idx !== -1) globalChat.splice(idx, 1);
+    let r = null;
+    try { r = await deleteChatMsg(req.params.msgId); }
+    catch (e) {
+      console.error('[DeleteChatMsg] SQL:', e.message);
+      if (idx === -1) return res.status(500).json({ error: 'Ошибка удаления' });
+    }
+    // 404 — только если сообщения нет НИ в кэше, НИ в БД.
+    if (idx === -1 && (!r || r.rowCount === 0)) {
+      return res.status(404).json({ error: 'Не найдено' });
+    }
     await logAdminAction(req.user.username, 'chat_delete', removed?.username || null, { msgId: req.params.msgId, text: (removed?.message || '').slice(0, 200) });
     io.emit('chat_msg_deleted', req.params.msgId);
     res.json({ ok: true });
@@ -1475,7 +1491,31 @@ function makeSlug(title, id) {
 }
 
 
+// Утечка памяти (P1): раньше forumViewSessions рос бесконечно — Map держал
+// Set просмотрщиков для КАЖДОЙ темы (включая удалённые) и никогда не чистился,
+// уникальные ip/юзеры копились в Set месяцами. Теперь коллекция ограничена:
+// максимум тем в Map и максимум просмотрщиков в одном Set; при переполнении
+// вытесняется самая старая запись (FIFO — Map итерируется в порядке вставки).
 const forumViewSessions = new Map();
+const FORUM_VIEW_MAX_THREADS = 1000; // сколько тем держим в памяти
+const FORUM_VIEW_MAX_VIEWERS = 5000; // сколько уникальных просмотрщиков на тему
+
+// Возвращает true, если viewerKey для темы виден впервые (тему нужно
+// +1 к счётчику просмотров), и в любом случае гарантирует соблюдение
+// лимитов коллекции.
+function trackForumView(threadId, viewerKey) {
+  // Просроченные/удалённые темы постепенно выдавливаются лимитом MAX_THREADS.
+  if (forumViewSessions.size >= FORUM_VIEW_MAX_THREADS && !forumViewSessions.has(threadId)) {
+    const oldest = forumViewSessions.keys().next().value;
+    if (oldest !== undefined) forumViewSessions.delete(oldest);
+  }
+  let viewers = forumViewSessions.get(threadId);
+  if (!viewers) { viewers = new Set(); forumViewSessions.set(threadId, viewers); }
+  if (viewers.has(viewerKey)) return false;
+  if (viewers.size >= FORUM_VIEW_MAX_VIEWERS) return false; // Set полон — новые просмотрщики не копим
+  viewers.add(viewerKey);
+  return true;
+}
 
 
 async function handleUnfollow(req, res) {
@@ -2350,6 +2390,27 @@ async function updateStats(white, black, result, rated = true) {
   const wLow = white.toLowerCase(), bLow = black.toLowerCase();
   if (wLow === bLow) return; // сам с собой — не бывает, но защита от деления на ноль в Elo
   try {
+    // Стабильность транзакции (P1): сетевой вызов calcNewRatings (fetch к
+    // Go-сервису, таймаут 2с) вынесен ДО withTransaction. Раньше он выполнялся
+    // внутри открытой транзакции при удержании FOR UPDATE на строках ОБОИХ
+    // игроков — недоступный/медленный Go-сервис растягивал блокировку на
+    // секунды, стопоря все партии с участием этих игроков и провоцируя
+    // каскадные таймауты. Читаем рейтинги отдельным запросом, считаем Elo,
+    // и только потом открываем короткую атомарную транзакцию.
+    let newRatingW, newRatingB;
+    if (rated) {
+      const curUsers = await db(
+        `SELECT username_low, rating FROM users WHERE username_low IN ($1, $2)`,
+        [wLow, bLow]
+      );
+      const rowW0 = curUsers.rows.find(x => x.username_low === wLow);
+      const rowB0 = curUsers.rows.find(x => x.username_low === bLow);
+      if (!rowW0 || !rowB0) return;
+      const nr = await calcNewRatings(rowW0.rating, rowB0.rating, result);
+      newRatingW = Math.max(100, nr.white);
+      newRatingB = Math.max(100, nr.black);
+    }
+
     const finalW = await withTransaction(async (client) => {
       const r = await client.query(
         `SELECT id, username, username_low, rating, games_played, wins, losses, draws
@@ -2360,12 +2421,6 @@ async function updateStats(white, black, result, rated = true) {
       const rowW = r.rows.find(x => x.username_low === wLow);
       const rowB = r.rows.find(x => x.username_low === bLow);
       if (!rowW || !rowB) return null;
-      let newRatingW = rowW.rating, newRatingB = rowB.rating;
-      if (rated) {
-        const nr = await calcNewRatings(rowW.rating, rowB.rating, result);
-        newRatingW = Math.max(100, nr.white);
-        newRatingB = Math.max(100, nr.black);
-      }
       const incW = result === 'white' ? 'games_played = games_played + 1, wins = wins + 1' : result === 'black' ? 'games_played = games_played + 1, losses = losses + 1' : 'games_played = games_played + 1, draws = draws + 1';
       const incB = result === 'white' ? 'games_played = games_played + 1, losses = losses + 1' : result === 'black' ? 'games_played = games_played + 1, wins = wins + 1' : 'games_played = games_played + 1, draws = draws + 1';
       const upd = await client.query(
@@ -2512,6 +2567,8 @@ function startTournamentGame(tournament, p1, p2) {
     tournamentId: tournament.id, tournamentName: tournament.name,
     isInterclub: !!tournament.isInterclub,
     firstMoveDeadline: game.firstMoveDeadline,
+    // Синхронизация часов (P1) — см. startGame ниже.
+    serverAt: now, lastMoveAt: game.lastMoveAt, whiteTime: game.whiteTime, blackTime: game.blackTime,
   });
   const ws = findSocketByUsername(white);
   const bs = findSocketByUsername(black);
@@ -2589,18 +2646,22 @@ async function finishTournamentGame(tournament, game, result, reason) {
 
 const ANTICHEAT_THRESHOLD = 95, ANTICHEAT_STREAK_BAN = 3;
 
+// Спуфинг античита (P0, устранено): раньше бан срабатывал по game.accuracy,
+// а accuracy приходила ПРЯМО ОТ КЛИЕНТА (socket 'game_over'). Даже после
+// санитизации диапазона 0..100 злоумышленник по-прежнему контролировал
+// само число: мог выставить 95%+ себе за 3 партии и «засветиться» перед
+// античитом, либо ПОДСТАВИТЬ соперника, прислав завышенную accuracy в
+// своей партии. Число, которое клиент присылает сам, не может быть
+// основанием для бана — триггер по клиентской accuracy полностью исключён.
+// Серверных сигналов два и оба остаются: (1) timer-based детект движка в
+// make_move (_acSuspect → alert админам), (2) ручные жалобы/модерация.
+// Функция сохранена как точка интеграции будущей СЕРВЕРНОЙ оценки партий
+// (когда accuracy будет считать сервер/движок, а не браузер).
 function checkAnticheat(tournament, game, wp, bp) {
-  const acc = game.accuracy; if (!acc) return;
-  if (wp && !wp.anticheatBanned) {
-    const highAcc = (acc.white || 0) >= ANTICHEAT_THRESHOLD;
-    wp._acHighAccGames = highAcc ? (wp._acHighAccGames || 0) + 1 : 0;
-    if (wp._acHighAccGames >= ANTICHEAT_STREAK_BAN) anticheatBan(tournament, wp.username);
-  }
-  if (bp && !bp.anticheatBanned) {
-    const highAcc = (acc.black || 0) >= ANTICHEAT_THRESHOLD;
-    bp._acHighAccGames = highAcc ? (bp._acHighAccGames || 0) + 1 : 0;
-    if (bp._acHighAccGames >= ANTICHEAT_STREAK_BAN) anticheatBan(tournament, bp.username);
-  }
+  // Клиентский game.accuracy здесь сознательно НЕ читается — см. выше.
+  // Реабилитационная логика anticheatBan() остаётся доступной для
+  // серверных источников сигнала.
+  return;
 }
 
 function anticheatBan(tournament, username) {
@@ -2657,8 +2718,12 @@ function startGame(acceptorSocket, challenge) {
   const wR = usersCache.get(white.toLowerCase())?.rating ?? '?';
   const bR = usersCache.get(black.toLowerCase())?.rating ?? '?';
   const ws = findSocketByUsername(white); const bs = findSocketByUsername(black);
-  if (ws) ws.emit('game_start', { gameId, color: 'white', opponent: black, opponentRating: bR, timeControl: game.timeControl, rated });
-  if (bs) bs.emit('game_start', { gameId, color: 'black', opponent: white, opponentRating: wR, timeControl: game.timeControl, rated });
+  // Синхронизация часов (P1): отдаём клиенту момент начала отсчёта
+  // (lastMoveAt = момент создания партии) и серверное "сейчас", чтобы
+  // клиентский таймер белых шёл синхронно с серверным liveClock с самой
+  // первой секунды, а не начинался после первого хода / 10с грейса.
+  if (ws) ws.emit('game_start', { gameId, color: 'white', opponent: black, opponentRating: bR, timeControl: game.timeControl, rated, serverAt: Date.now(), lastMoveAt: game.lastMoveAt, whiteTime: game.whiteTime, blackTime: game.blackTime });
+  if (bs) bs.emit('game_start', { gameId, color: 'black', opponent: white, opponentRating: wR, timeControl: game.timeControl, rated, serverAt: Date.now(), lastMoveAt: game.lastMoveAt, whiteTime: game.whiteTime, blackTime: game.blackTime });
 }
 
 
@@ -3341,6 +3406,7 @@ module.exports = {
   countTodayByUser,
   makeSlug,
   forumViewSessions,
+  trackForumView,
   handleUnfollow,
   blogAuthMiddleware,
   isBlogAdmin,

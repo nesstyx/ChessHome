@@ -117,6 +117,7 @@ const {
   countTodayByUser,
   makeSlug,
   forumViewSessions,
+  trackForumView,
   handleUnfollow,
   blogAuthMiddleware,
   isBlogAdmin,
@@ -2215,9 +2216,11 @@ app.get('/api/forum/threads/:slug', async (req, res) => {
     try { const p = jwt.verify(authTok945, JWT_SECRET); viewerKey = 'u:' + p.username.toLowerCase(); }
     catch { viewerKey = 'ip:' + getIP(req); }
   } else { viewerKey = 'ip:' + getIP(req); }
-  if (!forumViewSessions.has(thread.id)) forumViewSessions.set(thread.id, new Set());
-  const viewers = forumViewSessions.get(thread.id);
-  if (!viewers.has(viewerKey)) { viewers.add(viewerKey); thread.views++; saveForumThread(thread).catch(() => {}); }
+  // Утечка памяти (P1): учёт просмотрщиков вынесен в trackForumView (core.js),
+  // где размер forumViewSessions ограничен (лимит тем и лимит Set на тему).
+  if (trackForumView(thread.id, viewerKey)) {
+    thread.views++; saveForumThread(thread).catch(() => {});
+  }
 
   res.json({
     thread,
@@ -3824,10 +3827,14 @@ app.post('/api/puzzles/:id/move', authMiddleware, rateLimit(limiterStrict), asyn
     let correct = acceptedMoves.includes(playerMove)
       || acceptedMoves.some(m => m.length===4 && playerMove.startsWith(m))
       || acceptedMoves.some(m => m.length===5 && m.endsWith('q') && playerMove===m.slice(0,4));
-    if (!correct) return res.json({ correct: false, solution: puzzle.solution });
+    // Безопасность (P0): решение задачи больше НИКОГДА не покидает сервер.
+    // Раньше при неверном ходе уходило { correct:false, solution: puzzle.solution } —
+    // достаточно было послать заведомо кривой ход, и весь sol со всеми
+    // вариантами/ответными ходами автомата оказывался в ответе API.
+    if (!correct) return res.json({ correct: false });
     const autoMove = autoMoves[moveIndex] || null;
     const finished = moveIndex >= playerMoves.length - 1;
-    res.json({ correct: true, autoMove, finished, solution: finished ? puzzle.solution : null });
+    res.json({ correct: true, autoMove, finished });
   } catch(e) { console.error('[Puzzle move]', e.message); res.status(500).json({ error: 'Ошибка' }); }
 });
 
@@ -4497,10 +4504,29 @@ app.get('/game/:gameId', async (req, res) => {
     </html>
   `);
 
-  function escapeHtml(str) { return String(str || '').replace(/[&<>]/g, function(m) { if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }); }
+  // Единая безопасная реализация (P0, унификация escapeHtml): экранирует
+  // ВСЕ пять спецсимволов HTML, включая кавычки ' и " — раньше здесь были
+  // только & < >, поэтому ник с кавычкой мог вырваться из атрибута тега.
+  function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, function(m) {
+      switch (m) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default:  return m;
+      }
+    });
+  }
+  // XSS (P0): ники игроков вставляются в сгенерированную HTML-страницу —
+  // обязаны проходить через escapeHtml, иначе ник вида
+  // `<img src=x onerror=...>` исполнялся бы в браузере у любого открывшего.
   function formatGameResult(result, white, black) {
-    if (result === 'white') return `🏆 ${white} победил`;
-    if (result === 'black') return `🏆 ${black} победил`;
+    const safeWhite = escapeHtml(white);
+    const safeBlack = escapeHtml(black);
+    if (result === 'white') return `🏆 ${safeWhite} победил`;
+    if (result === 'black') return `🏆 ${safeBlack} победил`;
     if (result === 'draw') return `🤝 Ничья`;
     return `Партия завершена`;
   }
