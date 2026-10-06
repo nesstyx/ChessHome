@@ -2,6 +2,7 @@
 <html lang="ru">
 
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Профиль — Chess Home</title>
@@ -922,7 +923,7 @@
       return data;
     }
 
-    function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]); }
+    // escapeHtml (P0, унификация): общая реализация в /js/utils.js
     function toast(msg, type = 'info') { const c = document.getElementById('toast-container'); if (!c) return; const el = document.createElement('div'); el.className = 'toast ' + type; el.innerHTML = '<span>' + msg + '</span>'; c.appendChild(el); setTimeout(() => el.remove(), 3000); }
     function updateHeaderUI() { if (window.CH) CH.setCurrentUser(currentUser); }
     function closeModal(id) { const modal = document.getElementById(id); if (modal) modal.classList.remove('open'); }

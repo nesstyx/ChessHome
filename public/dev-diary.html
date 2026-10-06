@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="devdiary.page_title">Дневник разработки — Chess Home</title>
@@ -546,12 +547,8 @@
       if (diaryLoaded) loadDevDiary(currentPage);
     });
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return str.replace(/[&<>"']/g, m => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-      }[m]));
-    }
+    // escapeHtml (P0, унификация): общая реализация в /js/utils.js,
+    // подключается в <head> до этого скрипта.
 
     document.addEventListener('DOMContentLoaded', initPage);
   </script>

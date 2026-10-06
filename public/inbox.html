@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Личные сообщения — Chess Home</title>
@@ -849,14 +850,7 @@ document.addEventListener('click',e=>{
 });
 
 // ─── helpers ──────────────────────────────────────────────────
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
-}
+// escapeHtml (P0, унификация): общая реализация в /js/utils.js
 
 function relativeTime(ts) {
   const d = new Date(ts);

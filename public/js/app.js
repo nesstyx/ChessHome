@@ -1202,7 +1202,20 @@ function appendGlobalChatMsg(msg, scroll = true) {
   const canDelete  = currentUser?.role === 'admin';
 
   // Проверяем упоминание текущего пользователя
-  const isMentioned = currentUser && msg.message && msg.message.toLowerCase().includes('@' + currentUser.username.toLowerCase());
+  // БАГ (issue, исправлено): раньше был простой .includes('@nick') без границы
+  // слова — для ника ChessHome вся строка подсвечивалась на сообщение
+  // "@CHESSHOMEREVOLUTION где?" (подстрока входит в чужой ник). Теперь ищем
+  // ТОКЕН @ник с границей слова на конце: за ником должен идти символ, не
+  // входящий в состав ников (буква/цифра/подчёркивание/дефис запрещены),
+  // либо конец строки. Регэскейп ника защищает от спецсимволов в нём.
+  const isMentioned = (() => {
+    if (!currentUser || !msg.message) return false;
+    const myName = currentUser.username.toLowerCase();
+    const escaped = myName.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    // Тот же класс символов ников, что и в formatChatMessage: [\w\u0400-\u04FF-]
+    const regex = new RegExp('@' + escaped + '(?=[^\\w\\u0400-\\u04FF-]|$)', 'i');
+    return regex.test(msg.message);
+  })();
 
   const time = new Date(msg.timestamp).toLocaleTimeString('ru', {
     hour: '2-digit',
@@ -1865,6 +1878,9 @@ async function selectEmoji(emoji) {
     // Обновляем отображение в настройках
     const preview = document.getElementById('current-emoji-preview');
     if (preview) preview.textContent = emoji || '';
+    // Обновляем эмодзи в профиле, если он открыт
+    const profileEmoji = document.getElementById('profile-emoji');
+    if (profileEmoji) profileEmoji.textContent = emoji || '';
     // Перезагружаем чаты (чтобы обновились эмодзи)
     if (typeof reloadGlobalChat === 'function') reloadGlobalChat();
     else if (typeof initGlobalChat === 'function') initGlobalChat();
@@ -2175,10 +2191,10 @@ function loadGameIntoAnalysis(game) {
 }
 
 // ─── ПРОЧЕЕ ───────────────────────────────────────────────────
-function escapeHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// escapeHtml удалена (P0, унификация): единственная реализация живёт в
+// /js/utils.js и подключается из index.html до app.js. Старая версия
+// экранировала только &<>, не трогая кавычки ' и " — в атрибутах тегов
+// через них можно было вырваться (например, в data-user="@...").
 
 function setBoardTheme(light, dark) {
   document.documentElement.style.setProperty('--board-light', light);
@@ -2699,7 +2715,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   }, 150);
 };
   pages['puzzle-topic']       = () => {};
-  pages['puzzle-solve']       = () => {};
+  // F5-restore (issue, исправлено): раньше хендлер был пуст — после
+  // перезагрузки страницы на /puzzle-solve задача терялась (она жила только
+  // в памяти), и пользователь видел пустую рамку доски с неактивными
+  // кнопками. Теперь восстанавливаем задачу из sessionStorage.
+  pages['puzzle-solve']       = () => {
+    if (pz.puzzle && pz.board && pz.board.length) {
+      setTimeout(() => pzRender(), 50);
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem('ch_current_puzzle');
+      if (saved) {
+        const { puzzle, topic } = JSON.parse(saved);
+        if (puzzle && puzzle.fen) {
+          openPuzzleSolve(puzzle, topic);
+          return;
+        }
+      }
+    } catch (e) {}
+    // Восстановить нечего — безопасно возвращаем в каталог задач
+    showPage('puzzles');
+  };
   pages['puzzle-leaderboard'] = loadPuzzleLeaderboardFull;
   pages['storm']             = () => { location.href = '/storm.html'; };
   pages['storm-leaderboard'] = () => { location.href = '/storm.html?tab=leaderboard'; };
@@ -3416,10 +3453,16 @@ function filterPuzzleDiff(diff) {
 function openPuzzleSolve(puzzle, topic) {
   pz.puzzle=puzzle; pz.solved=false; pz.selected=null; pz.lastMove=null; pz.flipped=false; pz._moveIndex=0; pz._autoPlaying=false;
   pz._history=[]; pz._historyIdx=-1; pz._failed=false;
+  pz.topic=topic;
   pz.board=pzFenToBoard(puzzle.fen);
   pz.playerTurn=pzBoardTurn(puzzle.fen);
   if (pz.playerTurn==='b') pz.flipped=true;
   pzComputeLegalDests();
+  // F5-restore (issue, исправлено): задача жила только в памяти и умирала при
+  // перезагрузке страницы — на /puzzle-solve оставалась пустая рамка доски.
+  // Кэшируем задачу в sessionStorage, чтобы pages['puzzle-solve'] мог
+  // восстановить её после F5.
+  try { sessionStorage.setItem('ch_current_puzzle', JSON.stringify({ puzzle, topic: topic || null })); } catch (e) {}
   const topicEl=document.getElementById('puzzle-solve-topic');
   const titleEl=document.getElementById('puzzle-solve-title');
   const descEl=document.getElementById('puzzle-solve-desc');
@@ -3439,7 +3482,11 @@ function openPuzzleSolve(puzzle, topic) {
   setTimeout(()=>pzRender(), 60);
 }
 
-function goBackFromPuzzle() { showPage(pz.topic ? 'puzzle-topic' : 'puzzles'); }
+function goBackFromPuzzle() {
+  // F5-restore: ушли из задачи — кэш в sessionStorage больше не нужен
+  try { sessionStorage.removeItem('ch_current_puzzle'); } catch (e) {}
+  showPage(pz.topic ? 'puzzle-topic' : 'puzzles');
+}
 
 async function puzzleNext() {
   const next = pz.topicList[pz.idx + 1];
@@ -3591,82 +3638,6 @@ function showDmNotification(fromUsername, preview) {
     window.location = '/inbox/' + encodeURIComponent(fromUsername);
   });
 
-  // ─── Emoji picker (глобальный) ───────────────────────────────
-const EMOJIS = [
-  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰',
-  '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏',
-  '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠',
-  '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥',
-  '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐',
-  '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '💩', '👻', '💀',
-  '☠️', '👽', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🙈', '🙉', '🙊',
-  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐒', '🐔',
-  '🐧', '🐦', '🐤', '🐣', '🐥', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟',
-  '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞', '🐠', '🐟', '🐡', '🐬', '🐳', '🐋',
-  '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🦣', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃',
-  '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🐈', '🐓', '🦃', '🐇', '🐁',
-  '🐀', '🐿️', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄', '🌲', '🌳', '🌴', '🌿', '🍀', '🍁', '🍂', '🍃',
-  '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🥝', '🍅',
-  '🥥', '🥑', '🍆', '🥔', '🥕', '🌽', '🌶️', '🥒', '🥬', '🥦', '🧄', '🧅', '🍄', '🥜', '🌰', '🍞',
-  '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🧀', '🍖', '🍗', '🥩', '🥓', '🍔', '🍟', '🍕', '🌭', '🥪',
-  '🌮', '🌯', '🥙', '🧆', '🥚', '🍳', '🥘', '🍲', '🥣', '🥗', '🍿', '🧈', '🧂', '🥫', '🍱', '🍘',
-  '🍙', '🍚', '🍛', '🍜', '🍝', '🍠', '🍢', '🍣', '🍤', '🍥', '🥮', '🍡', '🥟', '🥠', '🥡', '🦀',
-  '🦞', '🦐', '🦑', '🐙', '🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁', '🥧', '🍫', '🍬', '🍭',
-  '🍮', '🍯', '🥛', '🍼', '🥤', '🧃', '🧉', '🧊', '🍺', '🍻', '🥂', '🥃', '🥄', '🍴', '🍽️', '🥢'
-];
-
-window.openEmojiPicker = function() {
-  const grid = document.getElementById('emoji-grid');
-  if (!grid) {
-    console.error('emoji-grid не найден');
-    return;
-  }
-  grid.innerHTML = '';
-  for (const em of EMOJIS) {
-    const div = document.createElement('div');
-    div.textContent = em;
-    div.style.cssText = 'cursor:pointer; font-size:28px; padding:4px; transition:transform 0.1s';
-    div.onmouseenter = () => div.style.transform = 'scale(1.1)';
-    div.onmouseleave = () => div.style.transform = 'scale(1)';
-    div.onclick = () => window.selectEmoji(em);
-    grid.appendChild(div);
-  }
-  if (typeof openModal === 'function') openModal('modal-emoji');
-  else console.error('openModal не определена');
-};
-
-window.selectEmoji = async function(emoji) {
-  if (!currentUser) {
-    toast('Войдите, чтобы сменить эмодзи', 'info');
-    return;
-  }
-  try {
-    const res = await fetch('/api/user/emoji', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emoji })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Ошибка');
-    }
-    const data = await res.json();
-    if (currentUser) currentUser.emoji = emoji;
-    if (window.CH) CH.setCurrentUser(currentUser);
-    // Обновить везде
-    const preview = document.getElementById('current-emoji-preview');
-    if (preview) preview.textContent = emoji || '';
-    const profileEmoji = document.getElementById('profile-emoji');
-    if (profileEmoji) profileEmoji.textContent = emoji || '';
-    // Перезагрузить чат
-    if (typeof initGlobalChat === 'function') initGlobalChat();
-    if (typeof closeModal === 'function') closeModal('modal-emoji');
-    toast('Эмодзи сохранён!', 'success');
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-};
 
   document.body.appendChild(el);
 

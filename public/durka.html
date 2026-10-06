@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Дурка — сводный лидерборд турниров | Chess Home</title>
@@ -364,11 +365,7 @@
 </div>
 
 <script>
-function escapeHtml(s){
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  }[c]));
-}
+// escapeHtml (P0, унификация): общая реализация в /js/utils.js
 
 let lbData = [];
 let lbQuery = '';
