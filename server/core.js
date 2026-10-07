@@ -15,6 +15,11 @@ const express = require('express');
 
 const http    = require('http');
 
+// crypto — для constant-time сравнения секретов (durka/worker ключи),
+// чтобы исключить timing-атаки на строковое сравнение (см. durkaKeyMiddleware
+// ниже и worker_auth в sockets.js).
+const crypto  = require('crypto');
+
 const { Server } = require('socket.io');
 
 // npm install compression — жмёт HTTP-ответы (JSON/HTML/JS/CSS) gzip'ом.
@@ -223,17 +228,31 @@ app.set('trust proxy', 2);
 class RateLimiter {
   constructor(windowMs, max) {
     this.windowMs = windowMs; this.max = max; this.store = new Map();
+    // Защита памяти (issue M4): store индексируется по IP-строке. При атаке с
+    // большого числа адресов (ботнет / IPv6 /64) карт может вырасти до
+    // миллионов записей за окно — OOM на маленьком инстансе. Ограничиваем:
+    // при переполнении вытесняется самая старая запись (Map итерируется в
+    // порядке вставки — это честный FIFO).
+    this.maxEntries = 200_000;
     setInterval(() => {
       const now = Date.now();
       for (const [ip, data] of this.store.entries()) {
         if (now > data.resetAt) this.store.delete(ip);
       }
-    }, 60000);
+    }, 60000).unref();
   }
   check(ip) {
     const now = Date.now();
     let data = this.store.get(ip);
-    if (!data || now > data.resetAt) { data = { count: 0, resetAt: now + this.windowMs }; this.store.set(ip, data); }
+    if (!data || now > data.resetAt) {
+      // Вытеснение при переполнении — ДО вставки новой записи.
+      if (!data && this.store.size >= this.maxEntries) {
+        const oldest = this.store.keys().next().value;
+        if (oldest !== undefined) this.store.delete(oldest);
+      }
+      data = { count: 0, resetAt: now + this.windowMs };
+      this.store.set(ip, data);
+    }
     data.count++;
     return { allowed: data.count <= this.max, count: data.count, max: this.max };
   }
@@ -286,7 +305,18 @@ async function loadBansFromDB() {
     for (const r of ips.rows)  if (!isLocalIP(r.ip)) bannedIPs.add(r.ip);
     for (const r of devs.rows) bannedDevices.add(r.device_id);
     console.log(`[Bans] Загружено: ${bannedIPs.size} IP, ${bannedDevices.size} устройств`);
-  } catch (e) { console.error('[Bans] load error:', e.message); }
+  } catch (e) {
+    // Безопасность (issue H1): раньше ошибка только логалась коротко и сервер
+    // продолжал работу с ПУСТЫМИ списками банов — при отсутствующих таблицах
+    // (чистый деплой; схема не была в репозитории) все баны «пропадали» молча.
+    // Теперь отсутствие таблиц даёт громкий fatal-подсказку в лог.
+    console.error('[Bans] load error:', e.message);
+    if (/relation .* does not exist/i.test(e.message || '')) {
+      console.error('[Bans] КРИТИЧНО: таблицы ip_bans/device_bans не существуют. ' +
+        'Примените базовую схему: node migrations/migrate.js (см. migrations/001_base_schema.sql). ' +
+        'Сервер продолжит работу с ПУСТЫМ списком банов!');
+    }
+  }
 }
 
 
@@ -308,10 +338,24 @@ async function removeBanFromDB(ip, deviceId) {
 // ── Кэш пользователей ─────────────────────────────────────────
 const usersCache = new Map();
 
+// Защита памяти (issue M5/«сервер захлёбывается» #91): usersCache пополняется
+// при каждом getUser() и НИКОГДА не чистился — при росте числа посетителей
+// весь сайт медленно съедал ОЗУ. Теперь у кэша мягкий предел: при переполнении
+// вытесняется самая старая запись (FIFO). Вытесненный пользователь просто
+// будет перечитан из БД при следующем getUser() — корректность не страдает.
+const USERS_CACHE_MAX = 100_000;
 
 function cacheUser(u) {
   if (!u) return;
-  usersCache.set(u.username_low || u.username.toLowerCase(), u);
+  const key = u.username_low || u.username.toLowerCase();
+  // Перезапись существующего ключа не растит Map — обновим позицию вставки,
+  // чтобы «горячие» пользователи не вытеснялись первыми.
+  if (usersCache.has(key)) usersCache.delete(key);
+  else if (usersCache.size >= USERS_CACHE_MAX) {
+    const oldest = usersCache.keys().next().value;
+    if (oldest !== undefined) usersCache.delete(oldest);
+  }
+  usersCache.set(key, u);
 }
 
 
@@ -1268,33 +1312,80 @@ const LICHESS_TOKEN = process.env.LICHESS_API_TOKEN;
 
 // Раньше не было выделенного лимита на /login — только общий limiterGeneral
 // (10000 запросов/мин на IP), что позволяло ~166 попыток пароля/сек с одного IP.
+//
+// Блокировка входа (issue H2): счётчик неудач был привязан ТОЛЬКО к нику.
+// Это позволяло третьему лицу за 5 неверных паролей ЗАЛОЧИТЬ ВХОД ЛЮБОМУ
+// пользователю на 15 минут (дёшевая DoS-атака на конкретного человека).
+// Теперь ключ — связка «ник + IP»: 5 неудач лочат пару (ник, IP), при этом
+// с одного IP нельзя брутфорсить чужой пароль (5 попыток/15 мин на аккаунт),
+// а жертва с другого адреса входит как обычно. От распределённого перебора
+// (много IP × один ник) защищает второй счётчик — usernameFailTotals:
+// 30 неудач с разных IP за 15 минут лочат ник целиком (bcrypt cost 10 делает
+// такой перебор бессмысленным, а легитимный пользователь при этом не
+// страдает от 5-минутного коврового лока).
 const loginFailStreaks = new Map();
+ // 'username_low|ip' -> { count, resetAt }
+const USERNAME_FAIL_WINDOW_MS = 15 * 60 * 1000;
+const USERNAME_FAIL_TOTAL_MAX = 30;
+const usernameFailTotals = new Map();
  // username_low -> { count, resetAt }
-function getLoginFailStreak(usernameLow) {
+function pruneFailWindow(map, now) {
+  for (const [k, v] of map.entries()) if (now > v.resetAt) map.delete(k);
+}
+setInterval(() => {
   const now = Date.now();
-  const entry = loginFailStreaks.get(usernameLow);
+  pruneFailWindow(loginFailStreaks, now);
+  pruneFailWindow(usernameFailTotals, now);
+}, 10 * 60 * 1000).unref();
+
+// Сколько неудач уже у этой пары (ник, IP)
+function getLoginFailStreak(usernameLow, ip) {
+  const now = Date.now();
+  const entry = loginFailStreaks.get(usernameLow + '|' + (ip || 'unknown'));
   if (!entry || now > entry.resetAt) return 0;
   return entry.count;
 }
 
-function bumpLoginFailStreak(usernameLow) {
+// Сколько суммарно неудач у ника со всех IP (для анти-распределённого брутфорса)
+function getUsernameFailTotal(usernameLow) {
   const now = Date.now();
-  const entry = loginFailStreaks.get(usernameLow);
+  const entry = usernameFailTotals.get(usernameLow);
+  if (!entry || now > entry.resetAt) return 0;
+  return entry.count;
+}
+
+// До какого значения (мс) лочен ник целиком, либо 0
+function getUsernameLockUntil(usernameLow) {
+  const now = Date.now();
+  const entry = usernameFailTotals.get(usernameLow);
+  if (!entry || now > entry.resetAt) return 0;
+  return entry.count >= USERNAME_FAIL_TOTAL_MAX ? entry.resetAt : 0;
+}
+
+function bumpLoginFailStreak(usernameLow, ip) {
+  const now = Date.now();
+  const key = usernameLow + '|' + (ip || 'unknown');
+  const entry = loginFailStreaks.get(key);
   if (!entry || now > entry.resetAt) {
-    loginFailStreaks.set(usernameLow, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    loginFailStreaks.set(key, { count: 1, resetAt: now + USERNAME_FAIL_WINDOW_MS });
   } else {
     entry.count++;
   }
+  const total = usernameFailTotals.get(usernameLow);
+  if (!total || now > total.resetAt) {
+    usernameFailTotals.set(usernameLow, { count: 1, resetAt: now + USERNAME_FAIL_WINDOW_MS });
+  } else {
+    total.count++;
+  }
 }
 
-function clearLoginFailStreak(usernameLow) {
-  loginFailStreaks.delete(usernameLow);
+function clearLoginFailStreak(usernameLow, ip) {
+  loginFailStreaks.delete(usernameLow + '|' + (ip || 'unknown'));
+  // Общий счётчик ника при УСПЕШНОМ входе сбрасываем только если он не лочен —
+  // иначе 29 неудач + 1 успех обнуляли бы прогресс анти-брутфорса.
+  const total = usernameFailTotals.get(usernameLow);
+  if (total && total.count < USERNAME_FAIL_TOTAL_MAX) usernameFailTotals.delete(usernameLow);
 }
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of loginFailStreaks.entries()) if (now > v.resetAt) loginFailStreaks.delete(k);
-}, 10 * 60 * 1000);
 
 // per-user (не per-IP) лимит: не больше 5 попыток в минуту на аккаунт —
 // внутри транзакции всё равно защищено FOR UPDATE + total_crystals_updated_at,
@@ -2031,10 +2122,27 @@ async function initDurkaTables() {
 
 
 // Проверка секретного ключа скрипта (НЕ обычная сессия пользователя).
+// Constant-time сравнение строк-секретов: обычное 'a !== b'short-circuit'ит
+// на первом несовпадающем байте, что теоретически позволяет вычислять секрет
+// побайтово по времени ответа. Хэшируем обе стороны SHA-256 — длины выравниваются,
+// сравнение через timingSafeEqual становится безопасным.
+function safeSecretEqual(a, b) {
+  try {
+    const ha = crypto.createHash('sha256').update(String(a)).digest();
+    const hb = crypto.createHash('sha256').update(String(b)).digest();
+    return crypto.timingSafeEqual(ha, hb);
+  } catch (e) { return false; }
+}
+
+
 function durkaKeyMiddleware(req, res, next) {
   const key = process.env.DURKA_ADMIN_KEY;
   if (!key) return res.status(500).json({ error: 'DURKA_ADMIN_KEY не настроен на сервере' });
-  if (req.headers['x-durka-key'] !== key) return res.status(403).json({ error: 'Неверный ключ' });
+  // Безопасность (issue L1): сравнение ключа — constant-time, плюс ключ
+  // проверяется против заголовка, который клиент контролирует целиком.
+  if (typeof req.headers['x-durka-key'] !== 'string' || !safeSecretEqual(req.headers['x-durka-key'], key)) {
+    return res.status(403).json({ error: 'Неверный ключ' });
+  }
   next();
 }
 
@@ -3389,6 +3497,8 @@ module.exports = {
   sniffImageMime,
   loginFailStreaks,
   getLoginFailStreak,
+  getUsernameFailTotal,
+  getUsernameLockUntil,
   bumpLoginFailStreak,
   clearLoginFailStreak,
   limiterQuests,
@@ -3434,6 +3544,7 @@ module.exports = {
   getCurrentSeasonDay,
   initDurkaTables,
   durkaKeyMiddleware,
+  safeSecretEqual,
   parsePuzzleSolution,
   handleDeletePuzzle,
   SPA_ROUTES,

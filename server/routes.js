@@ -100,6 +100,7 @@ const {
   LICHESS_TOKEN,
   loginFailStreaks,
   getLoginFailStreak,
+  getUsernameLockUntil,
   bumpLoginFailStreak,
   clearLoginFailStreak,
   limiterQuests,
@@ -407,24 +408,32 @@ app.post('/api/login',
     const usernameLow = (username || '').toLowerCase().trim();
     if (!usernameLow || typeof password !== 'string') return res.status(400).json({ error: 'Укажите имя и пароль' });
 
-    // Брутфорс (issue H2): раньше счётчик неудач только пополнялся, но нигде
-    // не проверялся (getLoginFailStreak был мёртвым кодом) — 1000 попыток/мин
-    // с IP при Symbolic-лимитере. Теперь после 5 неудачных подряд логин
-    // блокируется на 15 минут независимо от правильности пароля.
-    const streak = getLoginFailStreak(usernameLow);
+    // Брутфорс (issue H2): после 5 неудачных подряд С ЭТОГО IP логин этого
+    // ника блокируется на 15 минут. Ключ — «ник + IP», поэтому злоумышленник
+    // больше не может залочить вход жертве с пяти неверных попыток с одного
+    // адреса (DoS), а перебор пароля с одного IP по-прежнему бессмыслен.
+    const loginIP = getIP(req);
+    const streak = getLoginFailStreak(usernameLow, loginIP);
     if (streak >= 5) {
-      const waitMin = Math.ceil((loginFailStreaks.get(usernameLow).resetAt - Date.now()) / 60000);
+      const waitMin = Math.ceil((loginFailStreaks.get(usernameLow + '|' + loginIP).resetAt - Date.now()) / 60000);
       return res.status(429).json({ error: `Слишком много неудачных попыток. Попробуйте через ${Math.max(waitMin, 1)} мин.` });
+    }
+    // Анти-распределённый брутфорс: суммарно 30 неудач с разных IP за 15 минут
+    // лочат ник целиком (bcrypt делает такой перебор бессмысленным).
+    const lockUntil = getUsernameLockUntil(usernameLow);
+    if (lockUntil > Date.now()) {
+      const waitMin = Math.ceil((lockUntil - Date.now()) / 60000);
+      return res.status(429).json({ error: `Аккаунт временно защищён: слишком много неудачных попыток входа. Попробуйте через ${Math.max(waitMin, 1)} мин.` });
     }
 
     const user = await getUser(usernameLow);
-    if (!user) { bumpLoginFailStreak(usernameLow); return res.status(401).json({ error: 'Неверное имя или пароль' }); }
+    if (!user) { bumpLoginFailStreak(usernameLow, loginIP); return res.status(401).json({ error: 'Неверное имя или пароль' }); }
     if (user.banned) return res.status(403).json({ error: `Заблокирован: ${user.banReason || ''}` });
     if (!await bcrypt.compare(password, user.passwordHash)) {
-      bumpLoginFailStreak(usernameLow);
+      bumpLoginFailStreak(usernameLow, loginIP);
       return res.status(401).json({ error: 'Неверное имя или пароль' });
     }
-    clearLoginFailStreak(usernameLow);
+    clearLoginFailStreak(usernameLow, loginIP);
 
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('ch_token', token, AUTH_COOKIE_OPTS);
@@ -3628,7 +3637,7 @@ app.get('/api/durka/tournaments', async (req, res) => {
 
 // Приём результатов одного турнира от hi.py.
 // body: { tournamentId, name, url, results: [{ username, points, rank }] }
-app.post('/api/durka/add-tournament', durkaKeyMiddleware, async (req, res) => {
+app.post('/api/durka/add-tournament', rateLimit(limiterStrict, 'Слишком много запросов.'), durkaKeyMiddleware, async (req, res) => {
   try {
     const { tournamentId, name, url, results } = req.body || {};
     if (!tournamentId || !Array.isArray(results) || !results.length) {
@@ -3905,38 +3914,142 @@ app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), a
 
 
 // ══════════════════════════════════════════════════════════════
-//  PUZZLE STORM API
+//  PUZZLE STORM API — старый анонимный эндпоинт с УТЕЧКОЙ РЕШЕНИЙ
+//  УДАЛЁН (issue C1): он отдавал колонку solution любому посетителю.
+//  Новый серверно-авторитетный набор: /api/storm/start (ниже),
+//  /api/storm/puzzles (ниже), /api/storm/move (ниже), /api/storm/finish (ниже).
 // ══════════════════════════════════════════════════════════════
-app.get('/api/storm/puzzles', async (req, res) => {
-  try {
-    const topicsParam = req.query.topics || 'mate1,mate2';
-    const topics = topicsParam.split(',').map(t => t.trim()).filter(Boolean);
-    const placeholders = topics.map((_, i) => `$${i + 1}`).join(',');
-    const r = await db(`SELECT id,fen,solution,topic,difficulty FROM puzzles WHERE topic IN (${placeholders}) ORDER BY RANDOM() LIMIT 80`, topics);
-    res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: 'Ошибка' }); }
-});
+// (старый app.get('/api/storm/puzzles', ...) с res.json(r.rows) удалён)
+
+// ══════════════════════════════════════════════════════════════
+//  PUZZLE STORM API
+//
+//  Безопасность (issue C1, КРИТИЧНО): раньше GET /api/storm/puzzles
+//  отдавал клиенту колонку solution ЧИСТЫМ ТЕКСТОМ, а правильность ходов
+//  проверялась только в браузере. Любой скрипт: скачал задачи с решениями →
+//  рассылал ответы на автопилоте (выдерживая серверный минимум 350мс/задачу)
+//  → отправлял finish с correct=score → все серверные проверки проходили.
+//  Итог — верхние строчки leaderboard нулевыми усилиями.
+//
+//  Теперь вся игра авторитетно считается на сервере:
+//    POST /api/storm/start — сервер создаёт забег и держит решения в памяти;
+//    GET  /api/storm/puzzles — задачи БЕЗ решений (только fen/topic/difficulty
+//                              и число ходов игрока для подписи «Мат в N»);
+//    POST /api/storm/move    — каждый ход проверяет сервер, сервер же ведёт
+//                              счёт solved/wrong;
+//    POST /api/storm/finish  — очки берутся ТОЛЬКО из серверных счётчиков,
+//                              клиентские числа игнорируются.
+//  ══════════════════════════════════════════════════════════════
 
 app.post('/api/storm/start', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
   const runId = uuidv4();
-  stormRuns.set(runId, { userId: req.user.userId, startedAt: Date.now() });
+  stormRuns.set(runId, {
+    userId:      req.user.userId,
+    username:    req.user.username,
+    startedAt:   Date.now(),
+    // puzzleId -> { playerMoves, autoMoves, step, done }
+    answers:     new Map(),
+    solvedCount: 0,
+    wrongSet:    new Set(),
+    // защита от двойной отправки финиша
+    finished:    false,
+  });
   res.json({ runId });
+});
+
+app.get('/api/storm/puzzles', authMiddleware, async (req, res) => {
+  try {
+    const { runId } = req.query;
+    const run = typeof runId === 'string' ? stormRuns.get(runId) : null;
+    if (!run || run.userId !== req.user.userId) {
+      return res.status(400).json({ error: 'Забег не найден. Начните игру заново.' });
+    }
+    const topicsParam = req.query.topics || 'mate1,mate2';
+    const topics = topicsParam.split(',').map(t => t.trim()).filter(Boolean).slice(0, 8);
+    if (!topics.length) return res.status(400).json({ error: 'Неверные темы' });
+    const placeholders = topics.map((_, i) => `$${i + 1}`).join(',');
+    const r = await db(`SELECT id,fen,solution,topic,difficulty FROM puzzles WHERE topic IN (${placeholders}) ORDER BY RANDOM() LIMIT 80`, topics);
+    // Решения остаются на сервере — клиенту уезжает только игровое поле.
+    // movesCount нужен лишь для подписи «Мат в 1/2 хода» в интерфейсе.
+    const puzzles = r.rows.map(row => {
+      const { playerMoves, autoMoves } = parsePuzzleSolution(row.solution);
+      run.answers.set(row.id, {
+        playerMoves,
+        autoMoves,
+        step: 0,
+        done: false,
+      });
+      return { id: row.id, fen: row.fen, topic: row.topic, difficulty: row.difficulty, movesCount: playerMoves.length };
+    });
+    res.json(puzzles);
+  } catch(e) { console.error('[Storm puzzles]', e.message); res.status(500).json({ error: 'Ошибка' }); }
+});
+
+// Один ход игрока: сервер проверяет по решению и сам ведёт счёт.
+app.post('/api/storm/move', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
+  try {
+    const { runId, puzzleId, uci } = req.body || {};
+    if (typeof runId !== 'string' || typeof puzzleId !== 'string' || typeof uci !== 'string') {
+      return res.status(400).json({ error: 'Неверные данные' });
+    }
+    // UCI вида e2e4 / e7e8q — ничего больше не принимаем.
+    if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) {
+      return res.status(400).json({ error: 'Неверный формат хода' });
+    }
+    const run = stormRuns.get(runId);
+    if (!run || run.userId !== req.user.userId) {
+      return res.status(400).json({ error: 'Забег не найден. Начните игру заново.' });
+    }
+    const p = run.answers.get(puzzleId);
+    if (!p) return res.status(400).json({ error: 'Задача не из этого забега' });
+
+    if (p.done) return res.json({ correct: false, finished: true });
+
+    const stripAnno = (v) => v.replace(/[+#!?]/g, '');
+    const played = stripAnno(uci.toLowerCase().trim());
+    const expectedRaw = p.playerMoves[p.step];
+    const accepted = (expectedRaw || '').split('|').map(m => stripAnno(m.trim().toLowerCase()));
+
+    const isCorrect = accepted.includes(played)
+      || accepted.some(m => m.length === 4 && played.startsWith(m))
+      || accepted.some(m => m.length === 5 && m.endsWith('q') && played === m.slice(0, 4));
+
+    if (!isCorrect) {
+      // Ошибка в задаче засчитывается один раз (клиент после неё уходит
+      // к следующей задаче, но досылы/дубли не должны раздувать счёт).
+      if (!run.wrongSet.has(puzzleId)) run.wrongSet.add(puzzleId);
+      return res.json({ correct: false });
+    }
+
+    const canon = accepted.find(m => m === played)
+      || accepted.find(m => m.length === 4 && played.startsWith(m))
+      || accepted.find(m => m.length === 5 && m.endsWith('q') && played === m.slice(0, 4))
+      || played;
+    p.step++;
+    const autoMove = p.autoMoves[p.step - 1] || null;
+    const finished = p.step >= p.playerMoves.length;
+    if (finished) { p.done = true; run.solvedCount++; }
+    return res.json({ correct: true, canon, autoMove, finished });
+  } catch(e) { console.error('[Storm move]', e.message); res.status(500).json({ error: 'Ошибка' }); }
 });
 
 app.post('/api/storm/finish', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
   try {
     const { score, totalAttempted, correct, wrong, timeBonus, runId } = req.body;
-    if (typeof score !== 'number' || score < 0) return res.status(400).json({ error: 'Неверный score' });
-    if (typeof correct !== 'number' || typeof wrong !== 'number' || correct < 0 || wrong < 0) {
-      return res.status(400).json({ error: 'Неверные данные' });
+    // Типовая валидация клиентских полей (issue L3): они больше НЕ влияют
+    // на результат, но мусор в них не должен ронять эндпоинт 500-й.
+    for (const v of [score, totalAttempted, correct, wrong, timeBonus]) {
+      if (v !== undefined && !Number.isFinite(Number(v))) return res.status(400).json({ error: 'Неверные данные' });
     }
 
-    // ── Проверка на подделку результата ──
+    // ── Авторитетный подсчёт результата ──
     // 1) Забег должен быть начат через /api/storm/start этим же пользователем.
     const run = typeof runId === 'string' ? stormRuns.get(runId) : null;
     if (!run || run.userId !== req.user.userId) {
       return res.status(400).json({ error: 'Забег не найден. Начните игру заново.' });
     }
+    if (run.finished) return res.status(400).json({ error: 'Забег уже завершён' });
+    run.finished = true;
     stormRuns.delete(runId); // одноразовый — повторно этот runId использовать нельзя
 
     const elapsedMs = Date.now() - run.startedAt;
@@ -3944,25 +4057,25 @@ app.post('/api/storm/finish', authMiddleware, rateLimit(limiterStrict), async (r
     if (elapsedMs > STORM_MAX_TIME_MS) {
       return res.status(400).json({ error: 'Забег просрочен' });
     }
-    // 3) score всегда равен correct (1 очко за решённую задачу) — так считает клиент.
-    if (score !== correct) {
-      return res.status(400).json({ error: 'Результат не прошёл проверку' });
-    }
+
+    // 3) Очки — ТОЛЬКО серверные счётчики (клиентские score/correct игнорируются).
+    const finalScore   = run.solvedCount;
+    const finalWrong   = run.wrongSet.size;
     // 4) Нельзя решить больше задач, чем физически влезает во время игры.
     const maxPossible = Math.floor(elapsedMs / STORM_MIN_MS_PER_PUZZLE);
-    if (correct + wrong > maxPossible) {
+    if (finalScore + finalWrong > maxPossible) {
       return res.status(400).json({ error: 'Результат не прошёл проверку' });
     }
 
     const user = await getUser(req.user.username.toLowerCase());
     if (!user) return res.status(404).json({ error: 'Не найден' });
-    await db(`INSERT INTO puzzle_storm_runs (id,user_id,username,score,total_attempted,correct,wrong,time_bonus,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [uuidv4(), user.id, user.username, score, totalAttempted||0, correct||0, wrong||0, timeBonus||0, Date.now()]);
-    const isBest  = score > (user.storm_best || 0);
-    const newBest = isBest ? score : (user.storm_best || 0);
+    await db(`INSERT INTO puzzle_storm_runs (id,user_id,username,score,total_attempted,correct,wrong,time_bonus,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [uuidv4(), user.id, user.username, finalScore, finalScore + finalWrong, finalScore, finalWrong, Math.min(600, Number(timeBonus) || 0), Date.now()]);
+    const isBest  = finalScore > (user.storm_best || 0);
+    const newBest = isBest ? finalScore : (user.storm_best || 0);
     const newRuns = (user.storm_runs || 0) + 1;
     await db('UPDATE users SET storm_best=$1,storm_runs=$2 WHERE id=$3', [newBest, newRuns, user.id]);
     user.storm_best = newBest; user.storm_runs = newRuns; cacheUser(user);
-    res.json({ ok:true, isBest, newBest, totalRuns:newRuns });
+    res.json({ ok:true, isBest, newBest, totalRuns:newRuns, score: finalScore, correct: finalScore, wrong: finalWrong });
   } catch(e) { console.error('[Storm finish]',e.message); res.status(500).json({ error: 'Ошибка' }); }
 });
 

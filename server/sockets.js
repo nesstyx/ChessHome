@@ -38,6 +38,7 @@ const {
   analyzeJobs,
   pickIdleWorker,
   removeUserChatMessages,
+  safeSecretEqual,
   sanitizeTournament,
   getTournamentStatus,
   verifyToken,
@@ -92,7 +93,9 @@ io.on('connection', (socket) => {
   // Если не задан вообще — фича просто выключена, ничего не ломается.
   socket.on('worker_auth', (payload) => {
     const secret = typeof payload === 'string' ? payload : payload?.secret;
-    if (!process.env.WORKER_SECRET || secret !== process.env.WORKER_SECRET) {
+    // Безопасность (issue L1): сравнение секрета — constant-time (timing-атаки
+    // на '!== теоретически позволяют восстанавливать секрет побайтово).
+    if (!process.env.WORKER_SECRET || typeof secret !== 'string' || !safeSecretEqual(secret, process.env.WORKER_SECRET)) {
       socket.emit('worker_auth_error', 'Неверный секрет');
       socket.disconnect(true);
       return;
@@ -288,6 +291,15 @@ io.on('connection', (socket) => {
     const p = t.participants.find(p => p.username === socket.username);
     if (!p) return socket.emit('error', 'Вы не участвуете');
     if (p.currentGameId) return;
+    // Безопасность (issue M2): каждый вызов делал saveTournament (полный upsert
+    // всех участников) + emit в комнату + O(n²)-спаривание. При 100 событиях/сек
+    // на сокет это выливалось в сотни записей в БД в секунду от одного бота.
+    // 1) No-op защита: если игрок уже в очереди и не на паузе — делать нечего.
+    if (p.waiting && !p.paused) return;
+    // 2) Троттлинг: не чаще раза в секунду на сокет.
+    const nowTs = Date.now();
+    if (socket._lastSeekAt && nowTs - socket._lastSeekAt < 1000) return;
+    socket._lastSeekAt = nowTs;
     p.waiting = true;
     p.paused = false;
     p.nextEligibleAt = 0; // явный клик "Играть" — грейс-период не нужен
@@ -330,6 +342,11 @@ io.on('connection', (socket) => {
     const p = t.participants.find(p => p.username === socket.username);
     if (!p || p.left || p.anticheatBanned || p.currentGameId) return;
     if (getTournamentStatus(t, Date.now()) !== 'active') return;
+    // Issue M2: те же защита от no-op и троттлинг, что в tournament_seek.
+    if (p.waiting && !p.paused) return;
+    const nowTs = Date.now();
+    if (socket._lastSeekAt && nowTs - socket._lastSeekAt < 1000) return;
+    socket._lastSeekAt = nowTs;
     p.waiting = true;
     p.paused = false;
     p.nextEligibleAt = 0; // явный клик "Играть" — грейс-период не нужен
@@ -373,6 +390,16 @@ io.on('connection', (socket) => {
   socket.on('post_challenge', (data) => {
     if (!socket.username) return;
     if (typeof data !== 'object' || data === null) return;
+    // Безопасность (issue M1): каждый вызов post_challenge/cancel_challenge
+    // делал io.emit(...) ВСЕМ клиентам. socketLimiter разрешает 100 событий/сек
+    // на сокет — один бот мог заставить сервер разослать сотни бродкастов
+    // в секунду каждому подписчику (усиление DoS × N клиентов, вклад в #91).
+    // Теперь: не чаще 1 вызова в секунду на сокет.
+    const nowTs = Date.now();
+    if (socket._lastPostChallengeAt && nowTs - socket._lastPostChallengeAt < 1000) {
+      return socket.emit('error', 'Слишком часто — подождите секунду');
+    }
+    socket._lastPostChallengeAt = nowTs;
     const timeControl = typeof data.timeControl === 'string' && TIME_CONTROL_RE.test(data.timeControl) ? data.timeControl : '10+0';
     const color = ['white', 'black', 'random'].includes(data.color) ? data.color : 'random';
     const rated = data.rated !== false;
@@ -385,8 +412,11 @@ io.on('connection', (socket) => {
 
   socket.on('cancel_challenge', () => {
     if (!socket.username) return;
+    // Issue M1: broadcast только если вызов реально существовал и был удалён —
+    // холостые cancel больше не рассылают обновления всем клиентам.
     const idx = pendingChallenges.findIndex(c => c.from === socket.username);
-    if (idx !== -1) pendingChallenges.splice(idx, 1);
+    if (idx === -1) return;
+    pendingChallenges.splice(idx, 1);
     io.emit('challenges_update', pendingChallenges.filter(c => Date.now() - c.createdAt < CHALLENGE_TTL_MS));
   });
 
@@ -426,6 +456,11 @@ io.on('connection', (socket) => {
     // Контроль времени личного вызова: берём выбранный в зале, иначе 10+0.
     const directTC = typeof data === 'object' && data && typeof data.timeControl === 'string' && TIME_CONTROL_RE.test(data.timeControl) ? data.timeControl : '10+0';
     socket._directTC = directTC;
+    // Безопасность (issue M3): рейтинговость вызова решает ВЫЗЫВАЮЩИЙ и только
+    // он — сохраняем флаг на его сокете. Раньше acceptor мог незаметно
+    // «переключить» рейтинговую партию в товарищескую (избежать потери
+    // рейтинга) или наоборот, т.к. флаг читался из его ответа.
+    socket._directRated = rated;
     t.emit('incoming_challenge', { from: socket.username, socketId: socket.id, rated, timeControl: directTC });
   });
 
@@ -437,7 +472,10 @@ io.on('connection', (socket) => {
     if (!fromSocket) return socket.emit('error', 'Игрок отключился');
     // Берём контроль, который вызывающий сам указал (хранится на сервере, клиенту не доверяем).
     const directTC = typeof fromSocket._directTC === 'string' && TIME_CONTROL_RE.test(fromSocket._directTC) ? fromSocket._directTC : '10+0';
-    startGame(socket, { from: fromSocket.username, timeControl: directTC, color: 'random', rated, socketId: fromSocketId });
+    // Issue M3: рейтинговость — решение вызывающего (если его сокет известен и
+    // хранит флаг). Фолбэк на ответ принимающего сохранён для обратной совместимости.
+    const effectiveRated = typeof fromSocket._directRated === 'boolean' ? fromSocket._directRated : rated;
+    startGame(socket, { from: fromSocket.username, timeControl: directTC, color: 'random', rated: effectiveRated, socketId: fromSocketId });
   });
 
   socket.on('decline_challenge', (fromSocketId) => {
@@ -652,6 +690,13 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
+    // Анти-спам (issue M1): не чаще одного предложения в 2 секунды — иначе
+    // соперника можно заспамить сотнями попапов ничьей в секунду.
+    const nowD = Date.now();
+    if (socket._lastDrawOfferAt && nowD - socket._lastDrawOfferAt < 2000) {
+      return socket.emit('error', 'Не так часто — подождите пару секунд');
+    }
+    socket._lastDrawOfferAt = nowD;
     const opp = game.white === socket.username ? game.black : game.white;
     const os = findSocketByUsername(opp); if (os) os.emit('draw_offered', { gameId, from: socket.username });
   });
