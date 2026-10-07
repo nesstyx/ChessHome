@@ -703,7 +703,7 @@
     timeBonus:0, timeLeft:STORM_DURATION, running:false, _timer:null,
     currentPuzzle:null, board:null, flipped:false, legalDests:{},
     selected:null, playerMoves:[], autoMoves:[], moveStep:0, autoPlaying:false,
-    runId:null,
+    runId:null, checking:false,
   };
 
   let currentUser = null;
@@ -775,7 +775,7 @@
     Object.assign(storm, {
       puzzles:[], idx:0, score:0, correct:0, wrong:0, streak:0,
       timeBonus:0, timeLeft:STORM_DURATION, running:false,
-      selected:null, moveStep:0, autoPlaying:false, runId:null,
+      selected:null, moveStep:0, autoPlaying:false, runId:null, checking:false,
     });
     clearInterval(storm._timer);
     document.getElementById('storm-record-badge').style.display = 'none';
@@ -793,7 +793,9 @@
     }
 
     try {
-      const data = await apiFetch('/api/storm/puzzles?topics=mate1,mate2');
+      // Безопасность (issue C1): задачи привязаны к забегу, решения НЕ выдаются —
+      // каждый ход проверяет POST /api/storm/move.
+      const data = await apiFetch(`/api/storm/puzzles?topics=mate1,mate2&runId=${encodeURIComponent(storm.runId || '')}`);
       if (!data || !data.length) { alert('Не удалось загрузить задачи'); showScreen('landing'); return; }
       storm.puzzles = data;
     } catch (e) { alert('Ошибка загрузки задач'); showScreen('landing'); return; }
@@ -881,17 +883,18 @@
 
     storm.currentPuzzle = puz;
     storm.board         = fenToBoard(puz.fen);
-    // Первый ход solution = ход ИГРОКА (i%2===0)
+    // Первый ход — за стороной из FEN (она же — сторона игрока).
     // FEN-сторона = сторона игрока → переворачиваем если FEN говорит что ходят чёрные
     const fenSide = fenTurn(puz.fen);
     storm.flipped = fenSide === 'w'; // за чёрных — переворачиваем
 
-    const allMoves = (puz.solution || '').trim().split(/\s+/).filter(Boolean);
-    storm.playerMoves = allMoves.filter((_, i) => i % 2 === 0);
-    storm.autoMoves   = allMoves.filter((_, i) => i % 2 === 1);
+    // Безопасность (issue C1): решение задачи больше НЕ приходит с сервера —
+    // каждый ход проверяет POST /api/storm/move. Для подписи «Мат в 1/2 хода»
+    // сервер присылает поле movesCount.
     storm.moveStep   = 0;
     storm.selected   = null;
     storm.autoPlaying= false;
+    storm.checking   = false;
 
     computeLegal();
     render();
@@ -1018,7 +1021,8 @@
     if (!el || !storm.currentPuzzle) return;
     const fenSide   = fenTurn(storm.currentPuzzle.fen);
     const playerColor = fenSide; // игрок ходит первым, его сторона = FEN-сторона
-    const isMate1 = storm.playerMoves.length === 1;
+    // movesCount приходит с сервера (число ходов игрока) — само решение не выдаётся
+    const isMate1 = (storm.currentPuzzle.movesCount || 1) === 1;
     const mateLabel = isMate1 ? 'Мат в 1 ход' : 'Мат в 2 хода';
     const colorLabel = playerColor === 'w' ? '♔ Ход белых' : '♚ Ход чёрных';
     const colorStyle = playerColor === 'w' ? 'color:#f0d9b5' : 'color:#b58863';
@@ -1147,25 +1151,35 @@
     document.body.appendChild(overlay);
   }
 
-  function checkMove(from, to, uci) {
-    const expected = storm.playerMoves[storm.moveStep];
-    if (!expected) return;
+  // Безопасность (issue C1): правильность хода подтверждает сервер.
+  async function checkMove(from, to, uci) {
+    if (!storm.currentPuzzle || !storm.running || storm.checking) return;
+    if (!storm.runId) return;
 
-    const variants = expected.split('|').map(v => v.trim());
-    let ok = variants.includes(uci) ||
-      variants.some(v => v.length===4 && uci.startsWith(v)) ||
-      variants.some(v => v.length===5 && v.endsWith('q') && uci===v.slice(0,4));
+    storm.checking = true;
+    let answer = null;
+    try {
+      answer = await apiFetch('/api/storm/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: storm.runId, puzzleId: storm.currentPuzzle.id, uci }),
+      });
+    } catch (e) {
+      applyMove(uci);
+      storm.selected = null;
+      storm.checking = false;
+      return;
+    }
+    storm.checking = false;
 
-    if (ok) {
-      const canon = variants.find(v =>
-        v===uci||(v.length===4&&uci.startsWith(v))||(v.length===5&&v.endsWith('q')&&uci===v.slice(0,4))
-      ) || uci;
+    if (answer && answer.correct) {
+      const canon = answer.canon || uci;
       applyMove(canon);
       storm.selected = null;
       storm.moveStep++;
 
-      if (storm.moveStep >= storm.playerMoves.length) {
-        // ✓ Решено
+      if (answer.finished) {
+        // ✓ Решено (сервер подтвердил финал задачи)
         flash(true);
         storm.score++;
         storm.correct++;
@@ -1175,8 +1189,8 @@
         computeLegal(); render();
         setTimeout(loadPuzzle, 400);
       } else {
-        // Автомат отвечает: его индекс = moveStep-1 (т.к. moveStep уже увеличен)
-        const nextAuto = storm.autoMoves[storm.moveStep - 1];
+        // Автомат отвечает — ход присылает сервер в answer.autoMove
+        const nextAuto = answer.autoMove;
         if (nextAuto) {
           storm.autoPlaying = true;
           computeLegal(); render();
@@ -1188,7 +1202,7 @@
         }
       }
     } else {
-      // ✗ Ошибка
+      // ✗ Ошибка (локальный wrong — только для мгновенного отклика UI)
       flash(false);
       storm.wrong++;
       storm.streak  = 0;

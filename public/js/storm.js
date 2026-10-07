@@ -50,6 +50,7 @@ const storm = {
   autoMoves:    [],
   moveStep:     0,
   autoPlaying:  false,
+  checking:     false, // ход ожидает ответа сервера (issue C1)
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -149,7 +150,8 @@ async function stormStart() {
     '<div style="text-align:center;padding:40px;color:var(--text-muted)">Загрузка задач...</div>';
 
   try {
-    const data = await fetchJSON('/api/storm/puzzles?topics=mate1,mate2');
+    // Безопасность (issue C1): задачи привязаны к забегу, решения НЕ выдаются.
+    const data = await fetchJSON(`/api/storm/puzzles?topics=mate1,mate2&runId=${encodeURIComponent(storm.runId || '')}`);
     if (!data || !data.length) {
       if (typeof toast === 'function') toast('Не удалось загрузить задачи', 'error');
       return;
@@ -227,12 +229,13 @@ function _stormLoadPuzzle() {
   const fenSide       = pzBoardTurn(puz.fen);
   storm.flipped       = fenSide === 'b';
 
-  const allMoves = (puz.solution || '').trim().split(/\s+/).filter(Boolean);
-  storm.playerMoves = allMoves.filter((_, i) => i % 2 === 0);
-  storm.autoMoves   = allMoves.filter((_, i) => i % 2 === 1);
+  // Безопасность (issue C1): решение задачи больше НЕ приходит с сервера —
+  // каждый ход проверяет POST /api/storm/move. Клиент хранит только счётчик
+  // шагов для UI (автоответ приходит в ответе сервера).
   storm.moveStep    = 0;
   storm.selected    = null;
   storm.autoPlaying = false;
+  storm.checking    = false;
 
   _stormComputeLegal();
   _stormRender();
@@ -466,27 +469,42 @@ function _stormShowPromoDialog(from, to) {
   document.body.appendChild(overlay);
 }
 
-function _stormCheckMove(from, to, uci) {
-  const expected = storm.playerMoves[storm.moveStep];
-  if (!expected) return;
+// Безопасность (issue C1): правильность хода теперь подтверждает сервер
+// (POST /api/storm/move) — локальной проверки нет, т.к. решение задачи
+// больше не отправляется в браузер. Хендлер асинхронный; на время запроса
+// новые клики блокируются флагом storm.checking.
+async function _stormCheckMove(from, to, uci) {
+  if (!storm.currentPuzzle || !storm.running || storm.checking) return;
+  if (!storm.runId) return;
 
-  const variants   = expected.split('|').map(v => v.trim());
-  const isCorrect  = variants.includes(uci) ||
-    variants.some(v => v.length === 4 && uci.startsWith(v)) ||
-    variants.some(v => v.length === 5 && v.endsWith('q') && uci === v.slice(0,4));
+  storm.checking = true;
+  let answer = null;
+  try {
+    answer = await fetchJSON('/api/storm/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: storm.runId, puzzleId: storm.currentPuzzle.id, uci }),
+    });
+  } catch (e) {
+    // Сбой сети/сервера: показываем ход и продолжаем — очко не засчитано сервером.
+    _stormApplyMove(uci);
+    storm.selected = null;
+    if (typeof toast === 'function') toast('Сервер недоступен, ход не засчитан', 'error');
+    storm.checking = false;
+    return;
+  }
+  storm.checking = false;
 
-  if (isCorrect) {
-    const canonUCI = variants.find(v =>
-      v === uci || (v.length===4 && uci.startsWith(v)) || (v.length===5 && v.endsWith('q') && uci===v.slice(0,4))
-    ) || uci;
+  if (answer && answer.correct) {
+    const canonUCI = answer.canon || uci;
 
     _stormApplyMove(canonUCI);
     storm.selected = null;
     storm.moveStep++;
 
-    const nextAuto = storm.autoMoves[storm.moveStep - 1];
+    const nextAuto = answer.autoMove;
 
-    if (storm.moveStep >= storm.playerMoves.length) {
+    if (answer.finished) {
       _stormFlash(true);
       storm.score++;
       storm.correct++;
@@ -508,7 +526,8 @@ function _stormCheckMove(from, to, uci) {
       }, 350);
     }
   } else {
-    // ✗ Ошибка: ход легальный, но неверный
+    // ✗ Ошибка: ход легальный, но неверный (сервер счёт ведёт сам —
+    // локальный wrong нужен только для мгновенного отклика интерфейса)
     _stormApplyMove(uci);
     _stormFlash(false);
     storm.wrong++;
@@ -516,7 +535,7 @@ function _stormCheckMove(from, to, uci) {
     storm.timeLeft= Math.max(0, storm.timeLeft - STORM_WRONG_PEN);
     storm.selected= null;
     storm.autoPlaying = true; // Блокируем новые клики
-    
+
     _stormUpdateHUD();
     _stormRender();
     setTimeout(_stormLoadPuzzle, 900);
