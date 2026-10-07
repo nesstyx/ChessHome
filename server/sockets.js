@@ -367,7 +367,8 @@ io.on('connection', (socket) => {
   // единая проверка для вызовов. Раньше сюда попадало что угодно
   // (например, число 123), а позже challenge.timeControl.split('+') в
   // startGame падал с TypeError внутри setTimeout — процесс падал целиком.
-  const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?\+\d{1,2}(s)?$/;
+  // Допускаем секундную базу «15s+0» (кнопка «15 сек») и старый вид «60+0s».
+  const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?s?\+\d{1,2}s?$/;
 
   socket.on('post_challenge', (data) => {
     if (!socket.username) return;
@@ -422,7 +423,10 @@ io.on('connection', (socket) => {
     if (targetUsername.toLowerCase() === socket.username.toLowerCase()) return socket.emit('error', 'Нельзя вызвать самого себя');
     const t = findSocketByUsername(targetUsername);
     if (!t) return socket.emit('error', 'Не в сети');
-    t.emit('incoming_challenge', { from: socket.username, socketId: socket.id, rated });
+    // Контроль времени личного вызова: берём выбранный в зале, иначе 10+0.
+    const directTC = typeof data === 'object' && data && typeof data.timeControl === 'string' && TIME_CONTROL_RE.test(data.timeControl) ? data.timeControl : '10+0';
+    socket._directTC = directTC;
+    t.emit('incoming_challenge', { from: socket.username, socketId: socket.id, rated, timeControl: directTC });
   });
 
   socket.on('accept_direct_challenge', (data) => {
@@ -431,7 +435,9 @@ io.on('connection', (socket) => {
     const rated = typeof data === 'string' ? true : data?.rated !== false;
     const fromSocket = io.sockets.sockets.get(fromSocketId);
     if (!fromSocket) return socket.emit('error', 'Игрок отключился');
-    startGame(socket, { from: fromSocket.username, timeControl: '10+0', color: 'random', rated, socketId: fromSocketId });
+    // Берём контроль, который вызывающий сам указал (хранится на сервере, клиенту не доверяем).
+    const directTC = typeof fromSocket._directTC === 'string' && TIME_CONTROL_RE.test(fromSocket._directTC) ? fromSocket._directTC : '10+0';
+    startGame(socket, { from: fromSocket.username, timeControl: directTC, color: 'random', rated, socketId: fromSocketId });
   });
 
   socket.on('decline_challenge', (fromSocketId) => {
