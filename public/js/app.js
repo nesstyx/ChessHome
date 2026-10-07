@@ -394,7 +394,7 @@ function connectSocket() {
     toast(reasons[data.reason] || 'Ход не принят сервером', 'error');
     chessBoard.resyncFromServer(data);
   });
-  socket.on('incoming_challenge', ({ from, socketId, rated }) => showIncomingChallenge(from, socketId, rated));
+  socket.on('incoming_challenge', ({ from, socketId, rated, timeControl }) => showIncomingChallenge(from, socketId, rated, timeControl));
   // ── Анализ через домашний воркер (см. worker-client/) ──────────
   // Сервер прислал сырую UCI-строку от настоящего Stockfish на вашем
   // ПК — просто отдаём её тому же парсеру, что обрабатывает и локальный
@@ -698,9 +698,9 @@ function acceptChallenge(id) {
   socket.emit('accept_challenge', id);
 }
 
-function showIncomingChallenge(from, socketId, rated = true) {
+function showIncomingChallenge(from, socketId, rated = true, timeControl = '10+0') {
   const kind = rated === false ? 'товарищескую партию' : 'партию';
-  const accept = confirm(`${from} вызывает вас на ${kind}! Принять?`);
+  const accept = confirm(`${from} вызывает вас на ${kind} (${timeControl})! Принять?`);
   if (accept) socket.emit('accept_direct_challenge', { fromSocketId: socketId, rated });
   else socket.emit('decline_challenge', socketId);
 }
@@ -917,7 +917,7 @@ function challengeUserFromProfile(username) {
   if (!currentUser) { openModal('modal-login'); return; }
   if (!socket) { toast('Нет соединения. Войдите заново.', 'error'); return; }
   const rated = !confirm('Сделать партию товарищеской (без изменения рейтинга)?\n\nОК — товарищеская, Отмена — рейтинговая.');
-  socket.emit('challenge_user', { username, rated });
+  socket.emit('challenge_user', { username, rated, timeControl: selectedTC });
   toast(`Вызов отправлен ${username}!`, 'success');
 }
 

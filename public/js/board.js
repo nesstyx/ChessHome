@@ -836,9 +836,15 @@ const chessBoard = (() => {
     updateClockDisplay();
   }
 
+  // Возвращает [минуты, инкремент]. Поддерживает «15s+0» (секунды) — раньше
+  // Number('15s') давал NaN и контроль молча превращался в 10 минут.
   function parseTC(tc) {
-    const parts = (tc || '10+0').split('+').map(Number);
-    return [parts[0] || 10, parts[1] || 0];
+    const [baseRaw, incRaw] = String(tc || '10+0').split('+');
+    let min;
+    if (/s$/i.test(baseRaw)) min = (parseFloat(baseRaw) || 15) / 60;
+    else min = parseFloat(baseRaw);
+    if (!isFinite(min) || min <= 0) min = 10;
+    return [min, parseInt(incRaw, 10) || 0];
   }
 
   function updateClockDisplay() {
@@ -1057,7 +1063,10 @@ const chessBoard = (() => {
       // истёкшие на сервере за время доставки game_start.
       const [min] = parseTC(data.timeControl || '10+0');
       const preElapsed = data.lastMoveAt ? (Date.now() - data.lastMoveAt) / 1000 : 0;
-      startClock(min * 60, min * 60, data.timeControl, { autoStart: true, preElapsed });
+      // Сервер — источник истины: берём его whiteTime/blackTime, если пришли.
+      const startW = data.whiteTime !== undefined ? data.whiteTime : min * 60;
+      const startB = data.blackTime !== undefined ? data.blackTime : min * 60;
+      startClock(startW, startB, data.timeControl, { autoStart: true, preElapsed });
     }
 
     render();
