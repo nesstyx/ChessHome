@@ -767,6 +767,26 @@ let tData    = null;
 let tClubData = null; // данные клуба, если турнир привязан к клубу (для проверки членства)
 let currentUser = null;
 let countdownInterval = null;
+// Поправка часов: разница «время сервера − время этого компьютера». Без неё у
+// человека с неточными часами отсчёт доходит до 00:00:00 раньше/позже сервера.
+let serverTimeOffset = 0;
+let renderedStatus = null;   // статус, под который сейчас отрисована страница
+let _statusRefreshPending = false;
+// После 00:00:00 опрашиваем сервер, пока статус турнира не сменится
+// (раньше был ОДИН запрос через 2 с — при ошибке/рассинхроне страница так и
+// оставалась на 00:00:00 навсегда).
+function scheduleStatusRefresh(prevStatus) {
+  if (_statusRefreshPending) return;
+  _statusRefreshPending = true;
+  let tries = 0;
+  const tick = async () => {
+    tries++;
+    await loadTournament();
+    if ((tData && tData.status !== prevStatus) || tries >= 60) { _statusRefreshPending = false; return; }
+    setTimeout(tick, 1500);
+  };
+  setTimeout(tick, 800);
+}
 let currentSection = 'leaderboard';
 
 // ── ЧАТ ТУРНИРА ──
@@ -803,6 +823,15 @@ async function loadTournament() {
       return;
     }
     tData = await safeJson(r);
+    // Время сервера берём из ответа нашего же API (serverNow) — никаких внешних
+    // источников. Если у сервера «уплыли» часы, отсчёт идёт по ЕГО времени,
+    // и страница больше не зависает на 00:00:00.
+    if (typeof tData.serverNow === 'number' && isFinite(tData.serverNow)) {
+      serverTimeOffset = tData.serverNow - Date.now();
+      if (Math.abs(serverTimeOffset) > 5000) {
+        console.warn('[Tournament] Часы сервера отличаются от часов этого устройства на ' + Math.round(serverTimeOffset / 1000) + ' с');
+      }
+    }
     if (tData.clubId && !tClubData) {
       try {
         const cr = await fetch(API + '/clubs/' + tData.clubId);
@@ -964,6 +993,9 @@ function connectSocket() {
     const prevPart = tData && tData.participants && tData.participants.find(function(p){ return p.username === me; });
     const prevGameId = prevPart ? prevPart.currentGameId : null;
     tData = data;
+    // Сервер сменил статус (upcoming → active и т.д.), а страница ещё показывает
+    // старый отсчёт — перезагружаем турнир целиком.
+    if (renderedStatus && data && data.status && data.status !== renderedStatus) loadTournament();
     renderLeaderboard();
     renderGames();
     updateHeroStats();
@@ -975,6 +1007,11 @@ function connectSocket() {
     if (myPart && myPart.currentGameId && myPart.currentGameId !== prevGameId && socket && socket.username) {
       socket.emit('tournament_rejoin', { tournamentId: tId, gameId: myPart.currentGameId });
     }
+  });
+
+  socket.on('tournament_started', function (data) {
+    if (!data || data.tournamentId !== tId) return;
+    loadTournament();
   });
 
   socket.on('tournament_finished', function (data) {
@@ -1069,6 +1106,7 @@ function render() {
   document.getElementById('t-loading').style.display = 'none';
   document.getElementById('t-content').innerHTML = buildHTML(status, isAdmin, myPart, canJoin && !isBlacklisted && ratingOk && clubOk);
 
+  renderedStatus = status;
   startCountdown(status);
 
   if (tData.winner && status === 'finished') {
@@ -1539,7 +1577,7 @@ function startCountdown(status) {
   if (!el) return;
 
   countdownInterval = setInterval(() => {
-    const now = Date.now();
+    const now = Date.now() + serverTimeOffset;
     let ms, total;
     if (status === 'active') {
       ms = Math.max(0, tData.endsAt - now);
@@ -1553,7 +1591,7 @@ function startCountdown(status) {
     el.className = 'countdown-timer' + (ms < 60000 ? ' red' : '');
     if (ms <= 0) {
       clearInterval(countdownInterval);
-      setTimeout(loadTournament, 2000);
+      scheduleStatusRefresh(status);
     }
   }, 1000);
 }
