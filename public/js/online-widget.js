@@ -3,7 +3,7 @@
  * Shared online presence widget for all Chess Home pages.
  *
  * What it does:
- *  1. Connects to socket.io with auth token → registers current user as online
+ *  1. Connects to socket.io (auth via HttpOnly cookie in the handshake) → registers current user as online
  *  2. Listens for `online_count` events and updates #online-count
  *  3. Makes the .online-badge clickable → navigates to /online
  *
@@ -24,10 +24,6 @@
   var socket = null;
 
   // ── helpers ────────────────────────────────────────────────────
-
-  function getToken() {
-    return localStorage.getItem('ch_token');
-  }
 
   // Мёртвый код попапа УДАЛЕН (createPopup, positionPopup,
   // renderPopupLoading, loadUserList, openPopup, closePopup и локальная
@@ -67,24 +63,18 @@
 
 
   function connectSocket() {
-    var token = getToken();
     // io() is provided by socket.io.js; bail if not loaded yet
     if (typeof io !== 'function') return;
     if (socket) return;
 
     socket = io({ transports: ['websocket', 'polling'] });
 
-    socket.on('connect', function () {
-      // Берём токен свежим — он мог появиться после создания сокета (логин)
-      var freshToken = getToken();
-      if (freshToken) socket.emit('auth', freshToken);
-    });
-
     socket.on('online_count', function (count) {
       setCount(count);
     });
 
-    // НЕ обнуляем socket — socket.io сам переподключится и повторно emit('auth')
+    // НЕ обнуляем socket — socket.io сам переподключится, сервер авторизует
+    // сокет по HttpOnly-cookie из handshake, отдельный emit('auth') не нужен
   }
 
   // ── badge click handler ────────────────────────────────────────
@@ -155,10 +145,8 @@
         .find(Boolean);
       if (anyEl && anyEl.textContent === '0') {
         try {
-          var headers = {};
-          var token = getToken();
-          if (token) headers['Authorization'] = 'Bearer ' + token;
-          var res = await fetch(API + '/online/users', { headers: headers });
+          // куки отправляются автоматически (same-origin), Bearer-заголовок не нужен
+          var res = await fetch(API + '/online/users');
           var d = await res.json();
           if (Array.isArray(d)) setCount(d.length);
           else if (d.count != null) setCount(d.count);
