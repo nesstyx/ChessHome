@@ -1504,6 +1504,8 @@ app.post('/api/tournaments/interclub', authMiddleware, async (req, res) => {
   const { name, description, timeControl, durationMinutes, startsAt, minRating, maxRating, blacklist, teamLinks } = req.body;
   if (!name || !timeControl || !durationMinutes || !startsAt) return res.status(400).json({ error: 'Заполните обязательные поля' });
 
+  // Отсечь огромные массивы ДО дорогого поиска по клубам (FINDING-12).
+  if (Array.isArray(teamLinks) && teamLinks.length > 500) return res.status(400).json({ error: 'Слишком много ссылок на команды' });
   const { teamIds, notFound } = resolveInterclubTeams(teamLinks);
   if (teamIds.length < 2) return res.status(400).json({ error: 'Нужно указать ссылки минимум на 2 клуба-команды' });
   if (teamIds.length > MAX_INTERCLUB_TEAMS) return res.status(400).json({ error: `Максимум ${MAX_INTERCLUB_TEAMS} команд в межклубном турнире` });

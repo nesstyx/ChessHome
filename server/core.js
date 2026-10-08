@@ -1107,11 +1107,32 @@ function ipBanMiddleware(req, res, next) {
 //   2. x-forwarded-for — берём первый IP из списка (крайний левый = клиент)
 //   3. x-real-ip       — Nginx часто выставляет это поле напрямую
 //   4. socket.remoteAddress — прямое соединение (без прокси / локальный запуск)
+// Заголовки x-real-ip / x-forwarded-for доверяем ТОЛЬКО если TCP-сосед — наш
+// прокси (loopback или приватная сеть: nginx на этой же машине / docker bridge).
+// Иначе любой клиент, обратившийся к Node напрямую, подделает свой IP.
+function isTrustedProxyPeer(peer) {
+  if (!peer || typeof peer !== 'string') return false;
+  const p = peer.startsWith('::ffff:') ? peer.slice(7) : peer;
+  if (p === '::1' || p === '127.0.0.1' || p.startsWith('127.')) return true;
+  if (p.startsWith('10.') || p.startsWith('192.168.')) return true;
+  const m = /^172\.(\d{1,2})\./.exec(p);
+  if (m && +m[1] >= 16 && +m[1] <= 31) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(p)) return true; // IPv6 ULA fc00::/7
+  return false;
+}
+function cleanIpHeader(v) {
+  if (typeof v !== 'string') return null;
+  const ip = v.split(',')[0].trim();
+  return require('net').isIP(ip) ? ip : null;
+}
 function getIP(req) {
+  // 1) req.ip — Express сам разбирает x-forwarded-for по trust proxy.
+  // 2) fallback — только x-real-ip и только от доверенного прокси
+  //    (раньше брался левый, т.е. клиентский, элемент x-forwarded-for).
+  const peer = req.socket?.remoteAddress;
   return req.ip
-    || req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-    || req.headers['x-real-ip']
-    || req.socket?.remoteAddress
+    || (isTrustedProxyPeer(peer) ? cleanIpHeader(req.headers['x-real-ip']) : null)
+    || peer
     || 'unknown';
 }
 
@@ -1490,8 +1511,54 @@ async function handleUpdateAppealStatus(req, res) {
 async function handleEditTournament(req, res) {
   await requireTournamentManager(req, res, async (t) => {
     if (getTournamentStatus(t, Date.now()) === 'finished') return res.status(400).json({ error: 'Турнир завершён' });
-    ['name','description','timeControl','durationMinutes','maxParticipants','minRating','maxRating'].forEach(k => { if (req.body[k] !== undefined) t[k] = req.body[k]; });
-    if (req.body.startsAt) { t.startsAt = new Date(req.body.startsAt).getTime(); t.endsAt = t.startsAt + t.durationMinutes * 60000; }
+    // Mass assignment (FINDING-06): раньше поля копировались из тела как есть —
+    // timeControl:"DROP" / durationMinutes:"abc" давали NaN в часах и endsAt и
+    // ломали турнир. Валидируем теми же правилами, что и при создании, и
+    // применяем изменения только если ВСЕ поля прошли проверку.
+    const b = req.body || {};
+    const upd = {};
+    if (b.name !== undefined) {
+      const n = String(b.name).trim().slice(0, 60);
+      if (!n) return res.status(400).json({ error: 'Название не может быть пустым' });
+      upd.name = n;
+    }
+    if (b.description !== undefined) upd.description = String(b.description || '').trim().slice(0, 1000);
+    if (b.timeControl !== undefined) {
+      if (typeof b.timeControl !== 'string' || !/^\d{1,3}(\.\d)?\+\d{1,2}(s)?$/.test(b.timeControl)) {
+        return res.status(400).json({ error: 'Неверный контроль времени (формат «10+0», «3+2»)' });
+      }
+      upd.timeControl = b.timeControl;
+    }
+    if (b.durationMinutes !== undefined) {
+      const d = parseInt(b.durationMinutes, 10);
+      if (!Number.isFinite(d)) return res.status(400).json({ error: 'Неверная длительность' });
+      upd.durationMinutes = Math.max(5, Math.min(d, 7 * 24 * 60));
+    }
+    if (b.maxParticipants !== undefined) {
+      let m = parseInt(b.maxParticipants, 10);
+      if (!Number.isFinite(m) || m < 0) m = 0;
+      upd.maxParticipants = Math.min(m, 512);
+    }
+    if (b.minRating !== undefined || b.maxRating !== undefined) {
+      let lo = b.minRating !== undefined ? parseInt(b.minRating, 10) : t.minRating;
+      let hi = b.maxRating !== undefined ? parseInt(b.maxRating, 10) : t.maxRating;
+      if (!Number.isFinite(lo) || lo < 0) lo = 0;
+      if (!Number.isFinite(hi) || hi <= 0) hi = 9999;
+      if (lo > hi) { const tmp = lo; lo = hi; hi = tmp; }
+      upd.minRating = lo; upd.maxRating = hi;
+    }
+    if (b.startsAt) {
+      const st = new Date(b.startsAt).getTime();
+      if (!Number.isFinite(st)) return res.status(400).json({ error: 'Неверная дата начала' });
+      upd.startsAt = st;
+    }
+    if (Array.isArray(b.teamLinks) && b.teamLinks.length > 500) {
+      return res.status(400).json({ error: 'Слишком много ссылок на команды' });
+    }
+    Object.assign(t, upd);
+    if (upd.startsAt !== undefined || upd.durationMinutes !== undefined) {
+      t.endsAt = t.startsAt + t.durationMinutes * 60000;
+    }
     if (Array.isArray(req.body.blacklist)) t.blacklist = req.body.blacklist.map(s => String(s).toLowerCase().trim()).filter(Boolean).slice(0, 100);
     // Редактирование списка команд межклубного турнира (только для isInterclub турниров,
     // requireTournamentManager уже гарантирует, что сюда попадёт только сайт-админ).
@@ -2225,7 +2292,16 @@ async function authMiddleware(req, res, next) {
         return res.status(403).json({ error: 'Аккаунт заблокирован' + (u.banReason ? ': ' + u.banReason : '') });
       }
     }
-  } catch (e) { /* БД недоступна — не блокируем, чтобы не уронить сайт */ }
+  } catch (e) {
+    // БД недоступна: проверить бан/удаление аккаунта мы не можем. Чтение (GET/HEAD)
+    // пропускаем, чтобы сайт не «падал» целиком, а ИЗМЕНЯЮЩИЕ запросы закрываем:
+    // иначе забаненный пользователь с ещё живым JWT пишет в чат/ЛС/турниры
+    // на всё время простоя БД (fail-open, FINDING-05).
+    console.error('[authMiddleware] БД недоступна:', e && e.message);
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      return res.status(503).json({ error: 'Сервис временно недоступен, попробуйте через минуту' });
+    }
+  }
   next();
 }
 
@@ -3466,6 +3542,8 @@ module.exports = {
   ipBanMiddleware,
   getIP,
   isLocalIP,
+  isTrustedProxyPeer,
+  cleanIpHeader,
   vpnCheckCache,
   VPN_CACHE_TTL,
   isVpnOrProxy,
