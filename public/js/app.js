@@ -215,10 +215,8 @@ function updateAuthUI() {
   setTimeout(updateAuthUI, 50);
 }
 
-function toggleUserMenu()  { document.getElementById('ch-udrop')?.classList.toggle('open'); }
-function closeUserMenu()   { document.getElementById('ch-udrop')?.classList.remove('open'); }
-
-document.addEventListener('click', (e) => { if (!e.target.closest('#ch-user-wrap') && !e.target.closest('.user-menu')) closeUserMenu(); });
+// Мёртвые функции дропдауна toggleUserMenu/closeUserMenu УДАЛЕНЫ:
+// элемент #ch-udrop и его обработчики — в header.js.
 
 async function handleRegister(e) {
   e.preventDefault();
@@ -394,7 +392,7 @@ function connectSocket() {
     toast(reasons[data.reason] || 'Ход не принят сервером', 'error');
     chessBoard.resyncFromServer(data);
   });
-  socket.on('incoming_challenge', ({ from, socketId, rated }) => showIncomingChallenge(from, socketId, rated));
+  socket.on('incoming_challenge', ({ from, socketId, rated, timeControl }) => showIncomingChallenge(from, socketId, rated, timeControl));
   // ── Анализ через домашний воркер (см. worker-client/) ──────────
   // Сервер прислал сырую UCI-строку от настоящего Stockfish на вашем
   // ПК — просто отдаём её тому же парсеру, что обрабатывает и локальный
@@ -503,38 +501,9 @@ function closeMobileNav() {
   if (window.CH) CH.closeMobileNav();
 }
 
-function updateMobileNav() {
-  const userEl = document.getElementById('mobile-nav-user');
-  if (!userEl) return;
-  if (currentUser) {
-    userEl.innerHTML = `
-      <div class="player-avatar" style="width:44px;height:44px;font-size:18px">${currentUser.username[0].toUpperCase()}</div>
-      <div>
-        <div style="font-weight:700;font-size:16px">${escapeHtml(currentUser.username)}</div>
-        <div style="font-size:13px;color:var(--accent)">★ ${currentUser.rating}</div>
-      </div>`;
-    document.getElementById('mobile-profile-link').style.display = '';
-    document.getElementById('mobile-settings-link').style.display = '';
-    document.getElementById('mobile-logout-btn').style.display = '';
-    document.getElementById('mobile-login-btn').style.display = 'none';
-    document.getElementById('mobile-register-btn').style.display = 'none';
-    if (currentUser.role === 'admin') {
-      document.getElementById('mobile-admin-link').style.display = '';
-    }
-  } else {
-    userEl.innerHTML = '<div style="color:var(--text-muted);font-size:14px">Вы не авторизованы</div>';
-    document.getElementById('mobile-profile-link').style.display = 'none';
-    document.getElementById('mobile-settings-link').style.display = 'none';
-    document.getElementById('mobile-logout-btn').style.display = 'none';
-    document.getElementById('mobile-login-btn').style.display = '';
-    document.getElementById('mobile-register-btn').style.display = '';
-  }
-}
-
-function mobileLogout() {
-  closeMobileNav();
-  apiPost('/logout', {}).catch(() => {}).finally(() => window.location.reload());
-}
+// Мёртвая логика мобильного меню УДАЛЕНА (updateMobileNav/mobileLogout):
+// селекторы #mobile-nav-user, #mobile-profile-link, #mobile-settings-link
+// отсутствуют в DOM — навигация полностью в header.js.
 
 // Закрывать мобильное меню по Escape и свайпу назад
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileNav(); });
@@ -698,9 +667,9 @@ function acceptChallenge(id) {
   socket.emit('accept_challenge', id);
 }
 
-function showIncomingChallenge(from, socketId, rated = true) {
+function showIncomingChallenge(from, socketId, rated = true, timeControl = '10+0') {
   const kind = rated === false ? 'товарищескую партию' : 'партию';
-  const accept = confirm(`${from} вызывает вас на ${kind}! Принять?`);
+  const accept = confirm(`${from} вызывает вас на ${kind} (${timeControl})! Принять?`);
   if (accept) socket.emit('accept_direct_challenge', { fromSocketId: socketId, rated });
   else socket.emit('decline_challenge', socketId);
 }
@@ -917,7 +886,7 @@ function challengeUserFromProfile(username) {
   if (!currentUser) { openModal('modal-login'); return; }
   if (!socket) { toast('Нет соединения. Войдите заново.', 'error'); return; }
   const rated = !confirm('Сделать партию товарищеской (без изменения рейтинга)?\n\nОК — товарищеская, Отмена — рейтинговая.');
-  socket.emit('challenge_user', { username, rated });
+  socket.emit('challenge_user', { username, rated, timeControl: selectedTC });
   toast(`Вызов отправлен ${username}!`, 'success');
 }
 
@@ -1202,7 +1171,20 @@ function appendGlobalChatMsg(msg, scroll = true) {
   const canDelete  = currentUser?.role === 'admin';
 
   // Проверяем упоминание текущего пользователя
-  const isMentioned = currentUser && msg.message && msg.message.toLowerCase().includes('@' + currentUser.username.toLowerCase());
+  // БАГ (issue, исправлено): раньше был простой .includes('@nick') без границы
+  // слова — для ника ChessHome вся строка подсвечивалась на сообщение
+  // "@CHESSHOMEREVOLUTION где?" (подстрока входит в чужой ник). Теперь ищем
+  // ТОКЕН @ник с границей слова на конце: за ником должен идти символ, не
+  // входящий в состав ников (буква/цифра/подчёркивание/дефис запрещены),
+  // либо конец строки. Регэскейп ника защищает от спецсимволов в нём.
+  const isMentioned = (() => {
+    if (!currentUser || !msg.message) return false;
+    const myName = currentUser.username.toLowerCase();
+    const escaped = myName.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    // Тот же класс символов ников, что и в formatChatMessage: [\w\u0400-\u04FF-]
+    const regex = new RegExp('@' + escaped + '(?=[^\\w\\u0400-\\u04FF-]|$)', 'i');
+    return regex.test(msg.message);
+  })();
 
   const time = new Date(msg.timestamp).toLocaleTimeString('ru', {
     hour: '2-digit',
@@ -1680,150 +1662,17 @@ function applySettings() {
   document.documentElement.style.setProperty('--board-dark',  s.boardDark  || '#b58863');
 }
 
-// ─── ПРОФИЛЬ ──────────────────────────────────────────────────
-
-function _profileShow(id) {
-  ['profile-loading','profile-data','profile-auth-required','profile-notfound'].forEach(s => {
-    const el = document.getElementById(s);
-    if (el) el.style.display = s === id ? 'grid' : 'none';
-  });
-}
-
-// Переключение вкладок профиля
-function _initProfileTabs() {
-  document.querySelectorAll('.profile-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.profile-tab-btn').forEach(b => {
-        b.style.color = 'var(--text-muted)';
-        b.style.borderBottomColor = 'transparent';
-        b.classList.remove('active');
-      });
-      btn.style.color = 'var(--accent)';
-      btn.style.borderBottomColor = 'var(--accent)';
-      btn.classList.add('active');
-      ['overview','games','activity'].forEach(t => {
-        const el = document.getElementById('ptab-' + t);
-        if (el) el.style.display = btn.dataset.ptab === t ? '' : 'none';
-      });
-    });
-  });
-}
-
-// SVG спарклайн рейтинга
-function _drawProfileRatingChart(ratings) {
-  const svg = document.getElementById('profile-rating-svg');
-  if (!svg) return;
-  const emptyEl = document.getElementById('profile-svg-empty');
-  if (!ratings || ratings.length < 2) {
-    if (emptyEl) emptyEl.style.display = '';
-    return;
-  }
-  if (emptyEl) emptyEl.style.display = 'none';
-
-  const W = 500, H = 100, PAD = 12;
-  const mn = Math.min(...ratings) - 15;
-  const mx = Math.max(...ratings) + 15;
-  const range = mx - mn || 1;
-
-  const pts = ratings.map((r, i) => {
-    const x = PAD + (i / (ratings.length - 1)) * (W - PAD * 2);
-    const y = PAD + (1 - (r - mn) / range) * (H - PAD * 2 - 16);
-    return [x, y];
-  });
-
-  const lineD = pts.map((p, i) => (i === 0 ? `M${p[0].toFixed(1)},${p[1].toFixed(1)}` : `L${p[0].toFixed(1)},${p[1].toFixed(1)}`)).join(' ');
-  const areaD = lineD + ` L${pts[pts.length-1][0].toFixed(1)},${H} L${pts[0][0].toFixed(1)},${H} Z`;
-
-  svg.innerHTML = `<defs>
-    <linearGradient id="prg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="var(--accent)" stop-opacity=".3"/>
-      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <path d="${areaD}" fill="url(#prg)"/>
-  <path d="${lineD}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  ${pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="var(--accent)"/>`).join('')}
-  <text x="${pts[pts.length-1][0].toFixed(1)}" y="${(pts[pts.length-1][1]-7).toFixed(1)}" text-anchor="middle" fill="var(--accent)" font-size="11" font-weight="700">${ratings[ratings.length-1]}</text>`;
-}
-
-// Таблица колебаний рейтинга
-function _buildRatingTable(games, username, currentRating) {
-  const tbody = document.getElementById('profile-rating-tbody');
-  if (!tbody) return;
-  if (!games || !games.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">Партий пока нет</td></tr>';
-    return;
-  }
-
-  const K = 32;
-  let rNow = currentRating;
-  const rows = [];
-  const sorted = [...games].sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
-
-  sorted.slice(0, 20).forEach((g, i) => {
-    const isWhite = g.white === username;
-    const opponent = isWhite ? g.black : g.white;
-    let resText, resColor, score;
-    if (g.result === 'draw')                           { resText = 'Ничья';      resColor = 'var(--text-secondary)'; score = 0.5; }
-    else if (g.result === (isWhite ? 'white':'black')) { resText = 'Победа';     resColor = 'var(--green)';          score = 1; }
-    else                                               { resText = 'Поражение';  resColor = 'var(--red)';            score = 0; }
-
-    const oppEst = rNow + (score === 1 ? -20 : score === 0 ? 20 : 0);
-    const exp = 1 / (1 + Math.pow(10, (oppEst - rNow) / 400));
-    const delta = Math.round(K * (score - exp));
-    const date = g.endedAt ? new Date(g.endedAt).toLocaleDateString('ru', {day:'2-digit',month:'2-digit'}) : '—';
-
-    rows.push({ g, opponent, resText, resColor, delta, rNow, date });
-    rNow = Math.max(100, rNow - delta);
-  });
-
-  tbody.innerHTML = rows.map((r, i) => {
-    const dc = r.delta > 0 ? 'color:var(--green);font-weight:700' : r.delta < 0 ? 'color:var(--red);font-weight:700' : 'color:var(--text-muted)';
-    const ds = r.delta > 0 ? '+' + r.delta : String(r.delta);
-    const gJson = JSON.stringify(r.g).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-    return `<tr style="cursor:pointer;transition:background .1s" onmouseenter="this.style.background='var(--bg-hover)'" onmouseleave="this.style.background=''" onclick="_openGameFromProfile('${gJson}')">
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text-muted)">${i+1}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border)"><a href="/profile/${encodeURIComponent(r.opponent)}" style="color:var(--accent);text-decoration:none" onclick="event.stopPropagation()">${escapeHtml(r.opponent)}</a></td>
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text-muted)">${escapeHtml(r.g.timeControl||'?')}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border);color:${r.resColor};font-weight:600">${r.resText}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border);${dc}">${ds}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:12px">${r.rNow}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text-muted)">${r.date}</td>
-    </tr>`;
-  }).join('');
-}
-
-function _openGameFromProfile(g) {
-  if (typeof g === 'string') { try { g = JSON.parse(g); } catch(e) { return; } }
-  window.location.href = '/game/' + g.id;
-}
+// ─── ПРОФИЛЬ: мёртвый блок УДАЛЁН (_profileShow, _initProfileTabs,
+// _drawProfileRatingChart, _buildRatingTable, _openGameFromProfile) —
+// роут pages['profile'] редиректит на отдельную страницу /profile/:username,
+// эти функции ниоткуда не вызываются (просмотр профиля — public/profile.html).
 
 // ──────────────────────────────────────────────────────────────
 //  Emoji picker (настройки)
 // ──────────────────────────────────────────────────────────────
 
-const EMOJIS = [
-  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰',
-  '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏',
-  '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠',
-  '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥',
-  '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐',
-  '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '💩', '👻', '💀',
-  '☠️', '👽', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🙈', '🙉', '🙊',
-  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐒', '🐔',
-  '🐧', '🐦', '🐤', '🐣', '🐥', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟',
-  '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞', '🐠', '🐟', '🐡', '🐬', '🐳', '🐋',
-  '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🦣', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃',
-  '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🐈', '🐓', '🦃', '🐇', '🐁',
-  '🐀', '🐿️', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄', '🌲', '🌳', '🌴', '🌿', '🍀', '🍁', '🍂', '🍃',
-  '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🥝', '🍅',
-  '🥥', '🥑', '🍆', '🥔', '🥕', '🌽', '🌶️', '🥒', '🥬', '🥦', '🧄', '🧅', '🍄', '🥜', '🌰', '🍞',
-  '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🧀', '🍖', '🍗', '🥩', '🥓', '🍔', '🍟', '🍕', '🌭', '🥪',
-  '🌮', '🌯', '🥙', '🧆', '🥚', '🍳', '🥘', '🍲', '🥣', '🥗', '🍿', '🧈', '🧂', '🥫', '🍱', '🍘',
-  '🍙', '🍚', '🍛', '🍜', '🍝', '🍠', '🍢', '🍣', '🍤', '🍥', '🥮', '🍡', '🥟', '🥠', '🥡', '🦀',
-  '🦞', '🦐', '🦑', '🐙', '🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁', '🥧', '🍫', '🍬', '🍭',
-  '🍮', '🍯', '🥛', '🍼', '🥤', '🧃', '🧉', '🧊', '🍺', '🍻', '🥂', '🥃', '🥄', '🍴', '🍽️', '🥢'
-];
+// Массив EMOJIS вынесен в общий /js/emojis.js (4.2); в index.html он
+// подключён раньше app.js. Канон совпадает с серверным PROFILE_EMOJIS.
 
 function openEmojiPicker() {
   const grid = document.getElementById('emoji-grid');
@@ -1865,6 +1714,9 @@ async function selectEmoji(emoji) {
     // Обновляем отображение в настройках
     const preview = document.getElementById('current-emoji-preview');
     if (preview) preview.textContent = emoji || '';
+    // Обновляем эмодзи в профиле, если он открыт
+    const profileEmoji = document.getElementById('profile-emoji');
+    if (profileEmoji) profileEmoji.textContent = emoji || '';
     // Перезагружаем чаты (чтобы обновились эмодзи)
     if (typeof reloadGlobalChat === 'function') reloadGlobalChat();
     else if (typeof initGlobalChat === 'function') initGlobalChat();
@@ -1875,194 +1727,8 @@ async function selectEmoji(emoji) {
   }
 }
 
-async function renderProfileUI(username) {
-  _profileShow('profile-loading');
-  // Сброс вкладок
-  _initProfileTabs();
-  ['ptab-overview','ptab-games','ptab-activity'].forEach((id,i) => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = i===0?'':'none';
-  });
-  document.querySelectorAll('.profile-tab-btn').forEach((b,i) => {
-    if (i===0) { b.style.color='var(--accent)'; b.style.borderBottomColor='var(--accent)'; }
-    else       { b.style.color='var(--text-muted)'; b.style.borderBottomColor='transparent'; }
-  });
-
-  try {
-    const u = await apiGet('/users/' + encodeURIComponent(username));
-    _profileShow('profile-data');
-
-    const isMe = currentUser && currentUser.username === u.username;
-    history.replaceState({}, '', isMe ? '/profile' : '/profile/' + encodeURIComponent(u.username));
-
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    // set('profile-avatar', u.username[0].toUpperCase());
-    set('profile-name',   u.username);
-    set('profile-rating', '★ ' + u.rating);
-    set('profile-joined', 'На сайте с ' + new Date(u.createdAt).toLocaleDateString('ru'));
-
-    const onlineEl = document.getElementById('profile-online-status');
-    if (onlineEl) onlineEl.innerHTML = u.online
-      ? '<span style="color:var(--green)">● онлайн</span>'
-      : '<span style="color:var(--text-muted)">● оффлайн</span>';
-
-    // Бейдж
-    const badgeEl = document.getElementById('profile-badge');
-    if (badgeEl) {
-      badgeEl.innerHTML = '';
-      if (u.banned) badgeEl.innerHTML += '<span style="background:var(--red);color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;margin-right:4px">🚫 Заблокирован</span>';
-      if (u.role==='admin') badgeEl.innerHTML += '<span style="background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">⚙️ Администратор</span>';
-    }
-
-    set('stat-games',  u.gamesPlayed || 0);
-    set('stat-wins',   u.wins        || 0);
-    set('stat-losses', u.losses      || 0);
-    set('stat-draws',  u.draws       || 0);
-
-    const winPct = u.gamesPlayed > 0 ? Math.round(u.wins / u.gamesPlayed * 100) : 0;
-    const bar = document.getElementById('profile-winrate-bar');
-    const txt = document.getElementById('profile-winrate-text');
-    if (bar) bar.style.width = winPct + '%';
-    if (txt) txt.textContent = `Винрейт: ${winPct}% (${u.wins||0}П / ${u.losses||0}П / ${u.draws||0}Н)`;
-
-    // Задачи
-    set('profile-puzzle-rating', u.puzzle_rating || 1200);
-    set('profile-puzzle-solved', u.puzzle_solved || 0);
-    const acc = (u.puzzle_attempted||0) > 0 ? Math.round((u.puzzle_solved||0)/u.puzzle_attempted*100) : 0;
-    set('profile-puzzle-acc', acc + '%');
-    // Storm
-    set('profile-storm-best', (u.storm_runs||0) > 0 ? (u.storm_best || 0) : '—');
-    set('profile-storm-runs', u.storm_runs || 0);
-
-    // Кнопки действий
-    const actionsEl = document.getElementById('profile-actions');
-    if (actionsEl) {
-      actionsEl.style.display = (!isMe && currentUser) ? 'flex' : 'none';
-    }
-    const btnM = document.getElementById('profile-btn-message');
-    const btnC = document.getElementById('profile-btn-challenge');
-    const btnB = document.getElementById('profile-btn-ban');
-    const btnU = document.getElementById('profile-btn-unban');
-
-    if (btnM) { btnM.style.display = currentUser ? '' : 'none'; btnM.onclick = () => { window.location = '/inbox/' + encodeURIComponent(u.username); }; }
-    if (btnC) { btnC.style.display = (u.online && currentUser) ? 'block' : 'none'; btnC.onclick = () => { localStorage.setItem('ch_pending_challenge', u.username); showPage('lobby'); }; }
-    const isAdmin = currentUser?.role === 'admin';
-    if (btnB) { btnB.style.display = (isAdmin && !u.banned) ? '' : 'none'; btnB.onclick = async () => { const r = prompt('Причина бана:','Нарушение правил'); if (!r) return; await apiPost('/admin/ban',{username:u.username,reason:r}); toast('Заблокирован','success'); renderProfileUI(u.username); }; }
-    if (btnU) { btnU.style.display = (isAdmin && u.banned)  ? '' : 'none'; btnU.onclick = async () => { await apiPost('/admin/unban',{username:u.username}); toast('Разблокирован','success'); renderProfileUI(u.username); }; }
-
-    // Загружаем игры
-    const games = await loadProfileGames(u.username);
-
-    // Спарклайн
-    if (games && games.length > 1) {
-      const K = 32;
-      let r = u.rating;
-      const rHist = [r];
-      const sorted = [...games].sort((a,b)=>(b.endedAt||0)-(a.endedAt||0));
-      sorted.slice(0,19).forEach(g => {
-        const isW = g.white === u.username;
-        const sc = g.result==='draw'?0.5:g.result===(isW?'white':'black')?1:0;
-        const oppR = r + (sc===1?-20:sc===0?20:0);
-        const exp = 1/(1+Math.pow(10,(oppR-r)/400));
-        const delta = Math.round(K*(sc-exp));
-        r = Math.max(100, r-delta);
-        rHist.unshift(r);
-      });
-      _drawProfileRatingChart(rHist);
-    }
-
-    // Таблица колебаний
-    _buildRatingTable(games, u.username, u.rating);
-
-    // Активность. БАГ (исправлен): вызов несуществующей loadActivity кидал
-    // ReferenceError внутри try/catch — весь профиль уходил в "Пользователь не найден".
-    if (typeof loadActivity === 'function') loadActivity(u.username, games);
-
-    // Перепроверяем онлайн
-    const recheckOnline = async (n) => {
-      try {
-        const u2 = await apiGet('/users/' + encodeURIComponent(username));
-        const el = document.getElementById('profile-online-status');
-        if (el) el.innerHTML = u2.online
-          ? '<span style="color:var(--green)">● онлайн</span>'
-          : '<span style="color:var(--text-muted)">● оффлайн</span>';
-        if (u2.online || n>=3) return;
-      } catch {}
-      setTimeout(()=>recheckOnline(n+1), 2000);
-    };
-    setTimeout(()=>recheckOnline(1), 800);
-
-  } catch(e) {
-    _profileShow('profile-notfound');
-  }
-}
-
-async function loadProfileGames(username, limit=50, append=false) {
-  const listEl = document.getElementById('profile-games-list');
-  if (!append && listEl) listEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px 0"><div class="spinner" style="margin:0 auto 10px;width:20px;height:20px"></div></div>';
-
-  try {
-    const games = await apiGet('/users/' + encodeURIComponent(username) + '/games?limit=' + limit);
-
-    if (!games || !games.length) {
-      if (listEl && !append) listEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px 0;font-size:14px">Партий пока нет</div>';
-      return games || [];
-    }
-
-    if (listEl) {
-      if (!append) listEl.innerHTML = '';
-      games.forEach(g => {
-        const isWhite  = g.white === username;
-        const myColor  = isWhite ? 'white' : 'black';
-        const opponent = isWhite ? g.black : g.white;
-        let icon, color, label;
-        if (g.result === 'draw')       { icon='½'; color='var(--text-secondary)'; label='Ничья'; }
-        else if (g.result === myColor) { icon='✓'; color='var(--green)';          label='Победа'; }
-        else                           { icon='✗'; color='var(--red)';             label='Поражение'; }
-
-        const halfMoves = g.moves ? g.moves.length : 0;
-        const moveCnt   = Math.floor(halfMoves / 2);
-        const date = (g.endedAt||g.createdAt) ? new Date(g.endedAt||g.createdAt).toLocaleDateString('ru',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—';
-
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:8px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s';
-        row.onmouseenter = () => row.style.background = 'var(--bg-hover)';
-        row.onmouseleave = () => row.style.background = '';
-        row.innerHTML = `
-          <div style="width:28px;height:28px;border-radius:50%;background:${color}22;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:${color};flex-shrink:0">${icon}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-              ${escapeHtml(isWhite?'♙ ':'♟ ')}${escapeHtml(username)} <span style="color:var(--text-muted);font-weight:400">vs</span>
-              <a href="/profile/${encodeURIComponent(opponent)}" style="color:var(--accent);text-decoration:none" onclick="event.stopPropagation()">${escapeHtml(opponent||'?')}</a>
-            </div>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escapeHtml(g.timeControl||'?')} · ${moveCnt} ход${moveCnt===1?'':moveCnt<5?'а':'ов'} · ${date}</div>
-          </div>
-          <div style="font-size:12px;font-weight:600;color:${color};flex-shrink:0">${label}</div>
-          <div style="color:var(--text-muted);font-size:16px;flex-shrink:0">›</div>`;
-        row.addEventListener('click', () => _openGameFromProfile(g));
-        listEl.appendChild(row);
-      });
-
-      // Load more button
-      const moreEl = document.getElementById('profile-games-more');
-      const moreBtn = document.getElementById('profile-btn-more-games');
-      if (moreEl) moreEl.style.display = games.length >= limit ? '' : 'none';
-      if (moreBtn && !moreBtn._bound) {
-        moreBtn._bound = true;
-        moreBtn.addEventListener('click', async () => {
-          moreBtn.textContent = 'Загрузка...'; moreBtn.disabled = true;
-          await loadProfileGames(username, 20, true);
-          moreBtn.textContent = 'Загрузить ещё'; moreBtn.disabled = false;
-        });
-      }
-    }
-
-    return games;
-  } catch(e) {
-    if (listEl && !append) listEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px 0;font-size:14px">Не удалось загрузить историю</div>';
-    return [];
-  }
-}
+// Мёртвый блок профиля УДАЛЁН (renderProfileUI, loadProfileGames) —
+// см. комментарий выше: профиль живёт на отдельной странице.
 
 pages['profile'] = () => {
   if (currentUser && currentUser.username) {
@@ -2175,10 +1841,10 @@ function loadGameIntoAnalysis(game) {
 }
 
 // ─── ПРОЧЕЕ ───────────────────────────────────────────────────
-function escapeHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// escapeHtml удалена (P0, унификация): единственная реализация живёт в
+// /js/utils.js и подключается из index.html до app.js. Старая версия
+// экранировала только &<>, не трогая кавычки ' и " — в атрибутах тегов
+// через них можно было вырваться (например, в data-user="@...").
 
 function setBoardTheme(light, dark) {
   document.documentElement.style.setProperty('--board-light', light);
@@ -2636,30 +2302,11 @@ async function renderOnlineUsersList() {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-//  QUESTS (Сезон 2)
-// ──────────────────────────────────────────────────────────────
-let currentQuestsPage = 1;
-let questsTotalPages = 1;
-let userCrystals = 0;
-let availableQuestId = null;
-let canDoToday = false;
-
-
-
-// Привязка событий (после загрузки DOM)
-document.addEventListener('DOMContentLoaded', () => {
-    const prevBtn = document.getElementById('quests-prev-page');
-    const nextBtn = document.getElementById('quests-next-page');
-    const claimBtn = document.getElementById('quests-claim-btn');
-    if (prevBtn) prevBtn.addEventListener('click', () => {
-        if (currentQuestsPage > 1) loadQuests(currentQuestsPage - 1);
-    });
-    if (nextBtn) nextBtn.addEventListener('click', () => {
-        if (currentQuestsPage < questsTotalPages) loadQuests(currentQuestsPage + 1);
-    });
-    if (claimBtn) claimBtn.addEventListener('click', claimQuest);
-});
+// ─── QUESTS: мёртвые слушатели УДАЛЕНЫ (3.2) ─────────────────
+// Обработчики #quests-prev-page, #quests-next-page, #quests-claim-btn
+// слушали элементы, которых нет в index.html, и ссылались на
+// неопределённые loadQuests/claimQuest. Сами переменные блока
+// (currentQuestsPage и др.) больше нигде не использовались.
 
 // ─── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -2699,7 +2346,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   }, 150);
 };
   pages['puzzle-topic']       = () => {};
-  pages['puzzle-solve']       = () => {};
+  // F5-restore (issue, исправлено): раньше хендлер был пуст — после
+  // перезагрузки страницы на /puzzle-solve задача терялась (она жила только
+  // в памяти), и пользователь видел пустую рамку доски с неактивными
+  // кнопками. Теперь восстанавливаем задачу из sessionStorage.
+  pages['puzzle-solve']       = () => {
+    if (pz.puzzle && pz.board && pz.board.length) {
+      setTimeout(() => pzRender(), 50);
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem('ch_current_puzzle');
+      if (saved) {
+        const { puzzle, topic } = JSON.parse(saved);
+        if (puzzle && puzzle.fen) {
+          openPuzzleSolve(puzzle, topic);
+          return;
+        }
+      }
+    } catch (e) {}
+    // Восстановить нечего — безопасно возвращаем в каталог задач
+    showPage('puzzles');
+  };
   pages['puzzle-leaderboard'] = loadPuzzleLeaderboardFull;
   pages['storm']             = () => { location.href = '/storm.html'; };
   pages['storm-leaderboard'] = () => { location.href = '/storm.html?tab=leaderboard'; };
@@ -3416,10 +3084,16 @@ function filterPuzzleDiff(diff) {
 function openPuzzleSolve(puzzle, topic) {
   pz.puzzle=puzzle; pz.solved=false; pz.selected=null; pz.lastMove=null; pz.flipped=false; pz._moveIndex=0; pz._autoPlaying=false;
   pz._history=[]; pz._historyIdx=-1; pz._failed=false;
+  pz.topic=topic;
   pz.board=pzFenToBoard(puzzle.fen);
   pz.playerTurn=pzBoardTurn(puzzle.fen);
   if (pz.playerTurn==='b') pz.flipped=true;
   pzComputeLegalDests();
+  // F5-restore (issue, исправлено): задача жила только в памяти и умирала при
+  // перезагрузке страницы — на /puzzle-solve оставалась пустая рамка доски.
+  // Кэшируем задачу в sessionStorage, чтобы pages['puzzle-solve'] мог
+  // восстановить её после F5.
+  try { sessionStorage.setItem('ch_current_puzzle', JSON.stringify({ puzzle, topic: topic || null })); } catch (e) {}
   const topicEl=document.getElementById('puzzle-solve-topic');
   const titleEl=document.getElementById('puzzle-solve-title');
   const descEl=document.getElementById('puzzle-solve-desc');
@@ -3439,7 +3113,11 @@ function openPuzzleSolve(puzzle, topic) {
   setTimeout(()=>pzRender(), 60);
 }
 
-function goBackFromPuzzle() { showPage(pz.topic ? 'puzzle-topic' : 'puzzles'); }
+function goBackFromPuzzle() {
+  // F5-restore: ушли из задачи — кэш в sessionStorage больше не нужен
+  try { sessionStorage.removeItem('ch_current_puzzle'); } catch (e) {}
+  showPage(pz.topic ? 'puzzle-topic' : 'puzzles');
+}
 
 async function puzzleNext() {
   const next = pz.topicList[pz.idx + 1];
@@ -3591,82 +3269,6 @@ function showDmNotification(fromUsername, preview) {
     window.location = '/inbox/' + encodeURIComponent(fromUsername);
   });
 
-  // ─── Emoji picker (глобальный) ───────────────────────────────
-const EMOJIS = [
-  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰',
-  '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏',
-  '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠',
-  '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥',
-  '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐',
-  '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '💩', '👻', '💀',
-  '☠️', '👽', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🙈', '🙉', '🙊',
-  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐒', '🐔',
-  '🐧', '🐦', '🐤', '🐣', '🐥', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟',
-  '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞', '🐠', '🐟', '🐡', '🐬', '🐳', '🐋',
-  '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🦣', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃',
-  '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🐈', '🐓', '🦃', '🐇', '🐁',
-  '🐀', '🐿️', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄', '🌲', '🌳', '🌴', '🌿', '🍀', '🍁', '🍂', '🍃',
-  '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🥝', '🍅',
-  '🥥', '🥑', '🍆', '🥔', '🥕', '🌽', '🌶️', '🥒', '🥬', '🥦', '🧄', '🧅', '🍄', '🥜', '🌰', '🍞',
-  '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🧀', '🍖', '🍗', '🥩', '🥓', '🍔', '🍟', '🍕', '🌭', '🥪',
-  '🌮', '🌯', '🥙', '🧆', '🥚', '🍳', '🥘', '🍲', '🥣', '🥗', '🍿', '🧈', '🧂', '🥫', '🍱', '🍘',
-  '🍙', '🍚', '🍛', '🍜', '🍝', '🍠', '🍢', '🍣', '🍤', '🍥', '🥮', '🍡', '🥟', '🥠', '🥡', '🦀',
-  '🦞', '🦐', '🦑', '🐙', '🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁', '🥧', '🍫', '🍬', '🍭',
-  '🍮', '🍯', '🥛', '🍼', '🥤', '🧃', '🧉', '🧊', '🍺', '🍻', '🥂', '🥃', '🥄', '🍴', '🍽️', '🥢'
-];
-
-window.openEmojiPicker = function() {
-  const grid = document.getElementById('emoji-grid');
-  if (!grid) {
-    console.error('emoji-grid не найден');
-    return;
-  }
-  grid.innerHTML = '';
-  for (const em of EMOJIS) {
-    const div = document.createElement('div');
-    div.textContent = em;
-    div.style.cssText = 'cursor:pointer; font-size:28px; padding:4px; transition:transform 0.1s';
-    div.onmouseenter = () => div.style.transform = 'scale(1.1)';
-    div.onmouseleave = () => div.style.transform = 'scale(1)';
-    div.onclick = () => window.selectEmoji(em);
-    grid.appendChild(div);
-  }
-  if (typeof openModal === 'function') openModal('modal-emoji');
-  else console.error('openModal не определена');
-};
-
-window.selectEmoji = async function(emoji) {
-  if (!currentUser) {
-    toast('Войдите, чтобы сменить эмодзи', 'info');
-    return;
-  }
-  try {
-    const res = await fetch('/api/user/emoji', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emoji })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Ошибка');
-    }
-    const data = await res.json();
-    if (currentUser) currentUser.emoji = emoji;
-    if (window.CH) CH.setCurrentUser(currentUser);
-    // Обновить везде
-    const preview = document.getElementById('current-emoji-preview');
-    if (preview) preview.textContent = emoji || '';
-    const profileEmoji = document.getElementById('profile-emoji');
-    if (profileEmoji) profileEmoji.textContent = emoji || '';
-    // Перезагрузить чат
-    if (typeof initGlobalChat === 'function') initGlobalChat();
-    if (typeof closeModal === 'function') closeModal('modal-emoji');
-    toast('Эмодзи сохранён!', 'success');
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-};
 
   document.body.appendChild(el);
 

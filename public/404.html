@@ -514,16 +514,10 @@ async function initHeader() {
   }
 }
 
-async function loadOnline() {
-  try {
-    const r = await fetch('/api/online');
-    if (r.ok) { const d = await r.json(); document.getElementById('online-count').textContent = d.count; }
-  } catch {}
-}
+// 5.4: loadOnline() УДАЛЕНА — на странице 404 нет элемента #online-count,
+// таймер каждые 15 секунд делал заведомо холостые запросы.
 
 initHeader();
-loadOnline();
-setInterval(loadOnline, 15000);
 </script>
 <script src="/js/ping-widget.js" onerror="void 0"></script>
 </body>

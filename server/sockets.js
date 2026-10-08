@@ -7,10 +7,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const {
-  http,
   uuidv4,
-  fs,
-  app,
   parseCookieHeader,
   socketLimiter,
   bannedIPs,
@@ -38,18 +35,18 @@ const {
   analyzeJobs,
   pickIdleWorker,
   removeUserChatMessages,
+  safeSecretEqual,
   sanitizeTournament,
   getTournamentStatus,
   verifyToken,
-  hasFullMove,
+  // hasFullMove/recordGame/updateStats/finishTournamentGame здесь больше не
+  // нужны (P1): resign/accept_draw переведены на endGameAuthoritative и
+  // сами партию не завершают.
   endGameAuthoritative,
   findSocketByUsername,
   emitToAdmins,
-  recordGame,
-  updateStats,
   tryPairTournamentPlayers,
   FIRST_MOVE_TIMEOUT,
-  finishTournamentGame,
   startGame,
   serverChess,
   limiterSocketConnect,
@@ -93,7 +90,9 @@ io.on('connection', (socket) => {
   // Если не задан вообще — фича просто выключена, ничего не ломается.
   socket.on('worker_auth', (payload) => {
     const secret = typeof payload === 'string' ? payload : payload?.secret;
-    if (!process.env.WORKER_SECRET || secret !== process.env.WORKER_SECRET) {
+    // Безопасность (issue L1): сравнение секрета — constant-time (timing-атаки
+    // на '!== теоретически позволяют восстанавливать секрет побайтово).
+    if (!process.env.WORKER_SECRET || typeof secret !== 'string' || !safeSecretEqual(secret, process.env.WORKER_SECRET)) {
       socket.emit('worker_auth_error', 'Неверный секрет');
       socket.disconnect(true);
       return;
@@ -289,6 +288,15 @@ io.on('connection', (socket) => {
     const p = t.participants.find(p => p.username === socket.username);
     if (!p) return socket.emit('error', 'Вы не участвуете');
     if (p.currentGameId) return;
+    // Безопасность (issue M2): каждый вызов делал saveTournament (полный upsert
+    // всех участников) + emit в комнату + O(n²)-спаривание. При 100 событиях/сек
+    // на сокет это выливалось в сотни записей в БД в секунду от одного бота.
+    // 1) No-op защита: если игрок уже в очереди и не на паузе — делать нечего.
+    if (p.waiting && !p.paused) return;
+    // 2) Троттлинг: не чаще раза в секунду на сокет.
+    const nowTs = Date.now();
+    if (socket._lastSeekAt && nowTs - socket._lastSeekAt < 1000) return;
+    socket._lastSeekAt = nowTs;
     p.waiting = true;
     p.paused = false;
     p.nextEligibleAt = 0; // явный клик "Играть" — грейс-период не нужен
@@ -331,6 +339,11 @@ io.on('connection', (socket) => {
     const p = t.participants.find(p => p.username === socket.username);
     if (!p || p.left || p.anticheatBanned || p.currentGameId) return;
     if (getTournamentStatus(t, Date.now()) !== 'active') return;
+    // Issue M2: те же защита от no-op и троттлинг, что в tournament_seek.
+    if (p.waiting && !p.paused) return;
+    const nowTs = Date.now();
+    if (socket._lastSeekAt && nowTs - socket._lastSeekAt < 1000) return;
+    socket._lastSeekAt = nowTs;
     p.waiting = true;
     p.paused = false;
     p.nextEligibleAt = 0; // явный клик "Играть" — грейс-период не нужен
@@ -368,11 +381,22 @@ io.on('connection', (socket) => {
   // единая проверка для вызовов. Раньше сюда попадало что угодно
   // (например, число 123), а позже challenge.timeControl.split('+') в
   // startGame падал с TypeError внутри setTimeout — процесс падал целиком.
-  const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?\+\d{1,2}(s)?$/;
+  // Допускаем секундную базу «15s+0» (кнопка «15 сек») и старый вид «60+0s».
+  const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?s?\+\d{1,2}s?$/;
 
   socket.on('post_challenge', (data) => {
     if (!socket.username) return;
     if (typeof data !== 'object' || data === null) return;
+    // Безопасность (issue M1): каждый вызов post_challenge/cancel_challenge
+    // делал io.emit(...) ВСЕМ клиентам. socketLimiter разрешает 100 событий/сек
+    // на сокет — один бот мог заставить сервер разослать сотни бродкастов
+    // в секунду каждому подписчику (усиление DoS × N клиентов, вклад в #91).
+    // Теперь: не чаще 1 вызова в секунду на сокет.
+    const nowTs = Date.now();
+    if (socket._lastPostChallengeAt && nowTs - socket._lastPostChallengeAt < 1000) {
+      return socket.emit('error', 'Слишком часто — подождите секунду');
+    }
+    socket._lastPostChallengeAt = nowTs;
     const timeControl = typeof data.timeControl === 'string' && TIME_CONTROL_RE.test(data.timeControl) ? data.timeControl : '10+0';
     const color = ['white', 'black', 'random'].includes(data.color) ? data.color : 'random';
     const rated = data.rated !== false;
@@ -385,8 +409,11 @@ io.on('connection', (socket) => {
 
   socket.on('cancel_challenge', () => {
     if (!socket.username) return;
+    // Issue M1: broadcast только если вызов реально существовал и был удалён —
+    // холостые cancel больше не рассылают обновления всем клиентам.
     const idx = pendingChallenges.findIndex(c => c.from === socket.username);
-    if (idx !== -1) pendingChallenges.splice(idx, 1);
+    if (idx === -1) return;
+    pendingChallenges.splice(idx, 1);
     io.emit('challenges_update', pendingChallenges.filter(c => Date.now() - c.createdAt < CHALLENGE_TTL_MS));
   });
 
@@ -423,7 +450,15 @@ io.on('connection', (socket) => {
     if (targetUsername.toLowerCase() === socket.username.toLowerCase()) return socket.emit('error', 'Нельзя вызвать самого себя');
     const t = findSocketByUsername(targetUsername);
     if (!t) return socket.emit('error', 'Не в сети');
-    t.emit('incoming_challenge', { from: socket.username, socketId: socket.id, rated });
+    // Контроль времени личного вызова: берём выбранный в зале, иначе 10+0.
+    const directTC = typeof data === 'object' && data && typeof data.timeControl === 'string' && TIME_CONTROL_RE.test(data.timeControl) ? data.timeControl : '10+0';
+    socket._directTC = directTC;
+    // Безопасность (issue M3): рейтинговость вызова решает ВЫЗЫВАЮЩИЙ и только
+    // он — сохраняем флаг на его сокете. Раньше acceptor мог незаметно
+    // «переключить» рейтинговую партию в товарищескую (избежать потери
+    // рейтинга) или наоборот, т.к. флаг читался из его ответа.
+    socket._directRated = rated;
+    t.emit('incoming_challenge', { from: socket.username, socketId: socket.id, rated, timeControl: directTC });
   });
 
   socket.on('accept_direct_challenge', (data) => {
@@ -432,7 +467,12 @@ io.on('connection', (socket) => {
     const rated = typeof data === 'string' ? true : data?.rated !== false;
     const fromSocket = io.sockets.sockets.get(fromSocketId);
     if (!fromSocket) return socket.emit('error', 'Игрок отключился');
-    startGame(socket, { from: fromSocket.username, timeControl: '10+0', color: 'random', rated, socketId: fromSocketId });
+    // Берём контроль, который вызывающий сам указал (хранится на сервере, клиенту не доверяем).
+    const directTC = typeof fromSocket._directTC === 'string' && TIME_CONTROL_RE.test(fromSocket._directTC) ? fromSocket._directTC : '10+0';
+    // Issue M3: рейтинговость — решение вызывающего (если его сокет известен и
+    // хранит флаг). Фолбэк на ответ принимающего сохранён для обратной совместимости.
+    const effectiveRated = typeof fromSocket._directRated === 'boolean' ? fromSocket._directRated : rated;
+    startGame(socket, { from: fromSocket.username, timeControl: directTC, color: 'random', rated: effectiveRated, socketId: fromSocketId });
   });
 
   socket.on('decline_challenge', (fromSocketId) => {
@@ -631,18 +671,15 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
-    // Из карт удаляем СИНХРОННО до любого await — иначе параллельный resign/timeout
-    // успевает завершить ту же партию второй раз (двойные очки/статистика).
-    activeGames.delete(gameId);
-    tournamentGames.delete(gameId);
-    const rc = game.white === socket.username ? 'white' : 'black';
-    const wc = rc === 'white' ? 'black' : 'white';
-    const winSock = findSocketByUsername(wc === 'white' ? game.white : game.black);
-    socket.emit('game_ended', { gameId, result: wc, reason: 'resign' });
-    if (winSock) winSock.emit('game_ended', { gameId, result: wc, reason: 'opponent_resign' });
-    const isTournament = !!game.tournamentId;
-    if (isTournament) { const t = tournaments.find(t => t.id === game.tournamentId); if (t) await finishTournamentGame(t, game, wc, 'resign'); }
-    else if (hasFullMove(game)) { await recordGame(game, wc, 'resign'); await updateStats(game.white, game.black, wc, game.rated !== false); }
+    // Двойной учёт (P1, устранено): хендлер больше не завершает партию сам
+    // (свой delete из карт + recordGame + updateStats + finishTournamentGame),
+    // а передаёт всё в единую авторитарную точку endGameAuthoritative — как
+    // уже делают game_over и серверный тик часов. Она защищена флагом
+    // _finishing от гонки с параллельным resign/timeout/game_over и
+    // гарантирует ровно один финал: одна запись в БД, один инкремент
+    // статистики, одни очки турнира, одно broadcast game_ended.
+    const winner = game.white === socket.username ? 'black' : 'white';
+    await endGameAuthoritative(gameId, game, winner, 'resign');
   });
 
   socket.on('offer_draw', ({ gameId }) => {
@@ -650,6 +687,13 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
+    // Анти-спам (issue M1): не чаще одного предложения в 2 секунды — иначе
+    // соперника можно заспамить сотнями попапов ничьей в секунду.
+    const nowD = Date.now();
+    if (socket._lastDrawOfferAt && nowD - socket._lastDrawOfferAt < 2000) {
+      return socket.emit('error', 'Не так часто — подождите пару секунд');
+    }
+    socket._lastDrawOfferAt = nowD;
     const opp = game.white === socket.username ? game.black : game.white;
     const os = findSocketByUsername(opp); if (os) os.emit('draw_offered', { gameId, from: socket.username });
   });
@@ -661,14 +705,9 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
-    // Из карт удаляем СИНХРОННО до любого await (см. комментарий в resign).
-    activeGames.delete(gameId);
-    tournamentGames.delete(gameId);
-    const payload = { gameId, result: 'draw', reason: 'agreement' };
-    [findSocketByUsername(game.white), findSocketByUsername(game.black)].forEach(s => s?.emit('game_ended', payload));
-    const isTournament = !!game.tournamentId;
-    if (isTournament) { const t = tournaments.find(t => t.id === game.tournamentId); if (t) await finishTournamentGame(t, game, 'draw', 'agreement'); }
-    else if (hasFullMove(game)) { await recordGame(game, 'draw', 'agreement'); await updateStats(game.white, game.black, 'draw', game.rated !== false); }
+    // Двойной учёт (P1, устранено): завершение — только через единую
+    // авторитарную точку endGameAuthoritative (см. resign выше).
+    await endGameAuthoritative(gameId, game, 'draw', 'agreement');
   });
 
   socket.on('game_chat', ({ gameId, message }) => {

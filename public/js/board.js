@@ -726,7 +726,10 @@ const chessBoard = (() => {
   // Реальное отображаемое время = сохранённое - (now - clockTickAt) для activeColor.
   let clockTickAt = null; // Date.now() в момент последнего tickClock() / syncClock
 
-  function startClock(wTime, bTime, tc) {
+  // opts.autoStart  — сразу запустить отсчёт (онлайн-партия: сервер уже тикает).
+  // opts.preElapsed — сколько секунд уже истекло на сервере к моменту
+  //                   получения game_start (синхронизация первого хода, P1).
+  function startClock(wTime, bTime, tc, opts) {
     const parsed = parseTC(tc || '10+0');
     whiteTime = wTime !== undefined ? wTime : parsed[0] * 60;
     blackTime = bTime !== undefined ? bTime : parsed[0] * 60;
@@ -735,20 +738,21 @@ const chessBoard = (() => {
     clockRunning = false;
     clockTickAt = null;
     clearInterval(clockInterval);
-    updateClockDisplay();
 
-    // Даём белым 10 сек на первый ход, потом запускаем таймер
-    // (только для новых игр — при реджойне ходы уже есть)
-    if (gameMode === 'online' && playerColor === 'w') {
-      setTimeout(() => {
-        // Запускаем только если белые ещё не сделали ход (history пустая)
-        if (!clockRunning && (state.history ? state.history.length : 0) === 0) {
-          clockRunning = true;
-          clockTickAt = Date.now();
-          clockInterval = setInterval(clockTick_interval, 100);
-        }
-      }, 10000);
+    if (opts && opts.autoStart) {
+      // Сервер — источник истины: его liveClock сжигает время белых с момента
+      // создания партии (game.lastMoveAt). Раньше клиент давал белым 10с грейс
+      // и запускал часы только после первого хода — на первом ходу показания
+      // расходились с сервером на всё время размышления, и после move_confirmed
+      // время «прыгало» вниз. Теперь: вычитаем уже истёкшие на сервере секунды
+      // (с защитой от грубого рассинхрона часов) и тикаем сразу.
+      const pre = Math.max(0, Math.min(Number(opts.preElapsed) || 0, 30));
+      if (pre > 0) whiteTime = Math.max(0, whiteTime - pre);
+      clockRunning = true;
+      clockTickAt = Date.now();
+      clockInterval = setInterval(clockTick_interval, 100);
     }
+    updateClockDisplay();
   }
 
   function tickClock() {
@@ -832,9 +836,15 @@ const chessBoard = (() => {
     updateClockDisplay();
   }
 
+  // Возвращает [минуты, инкремент]. Поддерживает «15s+0» (секунды) — раньше
+  // Number('15s') давал NaN и контроль молча превращался в 10 минут.
   function parseTC(tc) {
-    const parts = (tc || '10+0').split('+').map(Number);
-    return [parts[0] || 10, parts[1] || 0];
+    const [baseRaw, incRaw] = String(tc || '10+0').split('+');
+    let min;
+    if (/s$/i.test(baseRaw)) min = (parseFloat(baseRaw) || 15) / 60;
+    else min = parseFloat(baseRaw);
+    if (!isFinite(min) || min <= 0) min = 10;
+    return [min, parseInt(incRaw, 10) || 0];
   }
 
   function updateClockDisplay() {
@@ -1047,9 +1057,16 @@ const chessBoard = (() => {
       clockRunning = true;
       clockInterval = setInterval(clockTick_interval, 100);
     } else {
-      // Новая игра — стандартный старт
+      // Новая игра — синхронизируемся с серверным liveClock (P1): сервер начал
+      // сжигать время белых с момента game.lastMoveAt (создание партии),
+      // поэтому клиентский отсчёт запускаем немедленно и вычитаем секунды,
+      // истёкшие на сервере за время доставки game_start.
       const [min] = parseTC(data.timeControl || '10+0');
-      startClock(min * 60, min * 60, data.timeControl);
+      const preElapsed = data.lastMoveAt ? (Date.now() - data.lastMoveAt) / 1000 : 0;
+      // Сервер — источник истины: берём его whiteTime/blackTime, если пришли.
+      const startW = data.whiteTime !== undefined ? data.whiteTime : min * 60;
+      const startB = data.blackTime !== undefined ? data.blackTime : min * 60;
+      startClock(startW, startB, data.timeControl, { autoStart: true, preElapsed });
     }
 
     render();

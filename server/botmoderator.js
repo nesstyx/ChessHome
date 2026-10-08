@@ -494,7 +494,10 @@ app.post('/api/admin/automod/flags/:id/remove-content', authMiddleware, async (r
 setInterval(() => { ensureBotAccount().catch(() => {}); }, 30 * 1000).unref();
 setInterval(() => { sweepContent().catch(e => console.error('[BotModerator] sweep:', e.message)); }, BOT.SWEEP_MS).unref();
 
+// Мёртвые экспорты УДАЛЕНЫ (sweepContent, whyTrusted, ensureBotAccount,
+// _recent): внешние модули их не импортируют — функции вызываются
+// таймерами и колбэками внутри самого файла.
 module.exports = {
-  BOT_NAME, BOT, punish, removeContent, sweepContent, whyTrusted, ensureBotAccount,
-  getMode: () => mode, _recent: recent,
+  BOT_NAME, BOT, punish, removeContent,
+  getMode: () => mode,
 };

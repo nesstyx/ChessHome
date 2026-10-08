@@ -473,10 +473,8 @@ async function loadStats() {
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#f97316'];
 
   try {
-    const token = localStorage.getItem('ch_token');
-    const res = await fetch('/api/stats', {
-      headers: token ? { Authorization: 'Bearer ' + token } : {}
-    });
+    // 5.3: токен в HttpOnly-cookie — 'Bearer null' из localStorage больше не отправляем.
+    const res = await fetch('/api/stats', { credentials: 'same-origin' });
     if (!res.ok) throw new Error(res.status);
     const D = await res.json();
     // ВАЖНО: раньше переменная называлась T и затеняла i18n-хелпер T()

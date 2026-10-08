@@ -2,6 +2,8 @@
 <html lang="ru">
 
 <head>
+<script src="/js/utils.js"></script>
+<script src="/js/emojis.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Профиль — Chess Home</title>
@@ -744,7 +746,7 @@
             <div class="section-card ai-review-card">
               <div class="ai-review-header">
                 <span class="ai-review-logo-wrap" id="ai-review-logo-wrap">
-                  <img class="ai-review-logo" id="ai-review-logo-img" src="../img/logo/favicon.png" alt="ChessHome AI">
+                  <img class="ai-review-logo" id="ai-review-logo-img" src="/img/logo/favicon.png" alt="ChessHome AI"><!-- 5.2: был относительный ../img/... ломавшийся на /profile/username -->
                 </span>
                 <span class="ai-review-title" data-i18n="profile.ai_title">Обзор от AI</span>
               </div>
@@ -922,7 +924,7 @@
       return data;
     }
 
-    function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]); }
+    // escapeHtml (P0, унификация): общая реализация в /js/utils.js
     function toast(msg, type = 'info') { const c = document.getElementById('toast-container'); if (!c) return; const el = document.createElement('div'); el.className = 'toast ' + type; el.innerHTML = '<span>' + msg + '</span>'; c.appendChild(el); setTimeout(() => el.remove(), 3000); }
     function updateHeaderUI() { if (window.CH) CH.setCurrentUser(currentUser); }
     function closeModal(id) { const modal = document.getElementById(id); if (modal) modal.classList.remove('open'); }
@@ -1320,34 +1322,9 @@ window.loadActivity = loadActivity;
       } catch (e) { console.warn(e); }
     }
 
-    // ── Эмодзи (без LGBT/трансгендер флагов) ──────────────────────
-    const EMOJIS = [
-      '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰',
-      '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏',
-      '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠',
-      '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥',
-      '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐',
-      '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '💩', '👻', '💀',
-      '☠️', '👽', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🙈', '🙉', '🙊',
-      '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐒', '🐔',
-      '🐧', '🐦', '🐤', '🐣', '🐥', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟',
-      '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞', '🐠', '🐟', '🐡', '🐬', '🐳', '🐋',
-      '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🦣', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃',
-      '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🐈', '🐓', '🦃', '🐇', '🐁',
-      '🐀', '🐿️', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄', '🌲', '🌳', '🌴', '🌿', '🍀', '🍁', '🍂', '🍃',
-      '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🥝', '🍅',
-      '🥥', '🥑', '🍆', '🥔', '🥕', '🌽', '🌶️', '🥒', '🥬', '🥦', '🧄', '🧅', '🍄', '🥜', '🌰', '🍞',
-      '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🧀', '🍖', '🍗', '🥩', '🥓', '🍔', '🍟', '🍕', '🌭', '🥪',
-      '🌮', '🌯', '🥙', '🧆', '🥚', '🍳', '🥘', '🍲', '🥣', '🥗', '🍿', '🧈', '🧂', '🥫', '🍱', '🍘',
-      '🍙', '🍚', '🍛', '🍜', '🍝', '🍠', '🍢', '🍣', '🍤', '🍥', '🥮', '🍡', '🥟', '🥠', '🥡', '🦀',
-      '🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁', '🥧', '🍫', '🍬', '🍭', '🍮', '🍯', '🥛', '🍼',
-      '🥤', '🧃', '🧉', '🧊', '🍺', '🍻', '🥂', '🥃', '🥄', '🍴', '🍽️', '🥢',
-      '⚽', '🏀', '🏈', '⚾', '🥎', '🏐', '🏉', '🎾', '🥏', '🎳', '🏆', '🥇', '🥈', '🥉',
-      '🎮', '🕹️', '🎲', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎸', '🎷', '🎺', '🎻',
-      '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '💕', '💞', '💓', '💗', '💖', '💘', '💝',
-      '✨', '🌟', '⭐', '🌙', '☀️', '🌈', '⚡', '💫', '☄️', '❄️', '☃️', '⛄', '🔥', '💧', '🌊', '🌪️',
-      '🎁', '🎀', '🎊', '🎉', '🎈', '🎃', '🎄', '🎋', '🎆', '🎇', '🛋️'
-    ];
+    // ── Эмодзи: массив EMOJIS вынесен в общий /js/emojis.js (4.2) ──
+    // (подключён в <head>); локальная копия удалена.
+
 
     function openEmojiPicker() {
       const grid = document.getElementById('emoji-grid');

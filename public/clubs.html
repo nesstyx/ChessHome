@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="clubs.page_title">Clubs — Chess Home</title>
@@ -620,10 +621,7 @@ let currentClubId = null;
 let clubSocketAuthed = false;
 
 // ── Utils ──────────────────────────────────────────────────────
-function escapeHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// escapeHtml (P0, унификация): общая реализация в /js/utils.js
 function toast(msg, type='info') {
   const c = document.getElementById('toast-container');
   const el = document.createElement('div');

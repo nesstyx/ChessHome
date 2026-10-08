@@ -6,8 +6,8 @@
 //  ВСЯ правила шахмат реализует библиотека chess.js (глобальный
 //  объект Chess из /js/vendor/chess.js), а этот файл — тонкий
 //  адаптер, который сохраняет прежний API ChessEngine.* для
-//  board.js / app.js / editor.js / opening-board.js / tv.js /
-//  engine-play.html, чтобы ничего из них не пришлось переписывать.
+//  board.js / app.js / editor.js / opening-board.js / tv.js,
+//  чтобы ничего из них не пришлось переписывать.
 //
 //  Формат состояния (совместим со старым движком):
 //    state.board   — Array(64), клетка: null | {type:'K'.., color:'w'|'b'}
@@ -40,24 +40,11 @@ const ChessEngine = (() => {
     return String.fromCharCode(97 + f) + (r + 1);
   }
 
-  function rank(idx) { return Math.floor(idx / 8); }
-  function file(idx) { return idx % 8; }
+  // rank()/file() УДАЛЕНЫ (3.6): экспортировались, но нигде не использовались.
   function opposite(color) { return color === WHITE ? BLACK : WHITE; }
 
-  // ─── Состояние ───────────────────────────────────────────────
-  function createState() {
-    return {
-      board: Array(64).fill(null),
-      turn: WHITE,
-      castling: { K: true, Q: true, k: true, q: true },
-      enPassant: null,
-      halfmove: 0,
-      fullmove: 1,
-      history: [],
-      capturedWhite: [],
-      capturedBlack: []
-    };
-  }
+  // createState() УДАЛЕН (3.6): экспортировался, но не вызывался ни внутри,
+  // ни снаружи — состояние создаётся через parseFEN().
 
   function deepClone(state) {
     return {
@@ -324,7 +311,6 @@ const ChessEngine = (() => {
     START_FEN,
     parseFEN,
     toFEN,
-    createState,
     legalMoves,
     allLegalMoves,
     applyMove,
@@ -338,9 +324,7 @@ const ChessEngine = (() => {
     findKing,
     isAttacked,
     opposite,
-    deepClone,
-    rank,
-    file
+    deepClone
   };
 })();
 

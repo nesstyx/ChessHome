@@ -977,9 +977,8 @@
           </button>
         </div>
       </div>`;
-{/* <a href="/settings.html" onclick="event.preventDefault();(window.showPage?showPage('settings'):location.href='/settings')">
-            <span class="ch-di-icon">⚙️</span>${esc(t('header.nav_settings'))}
-          </a> */}
+    // Строка JSX-мусора `{/* <a href="/settings.html" ... */}` УДАЛЕНА (3.4):
+    // в чистом JS это невалидный синтаксис, оставшийся от React-версии.
     document.getElementById('ch-user-btn').addEventListener('click', e => {
       e.stopPropagation();
       const drop = document.getElementById('ch-udrop');
@@ -1199,11 +1198,47 @@
   window.closeMobileNav  = () => CH.closeMobileNav();
   window.CH = CH;
 
+  // ── Баннер обновления документов (4.5) ───────────────────────────────────
+  // Раньше разметка и скрипт баннера были скопированы слово в слово в
+  // index.html, privacy.html и terms.html. Теперь отображение инкапсулировано
+  // здесь: header.js подключён на всех страницах, баннер показывается один раз
+  // (до подтверждения в localStorage), текст — через i18n-ключи home.policy_banner_*.
+  const POLICY_VERSION = 'v1.1-2025-06-12';
+  window.dismissPolicyBanner = function () {
+    try { localStorage.setItem('ch_policy_seen', POLICY_VERSION); } catch {}
+    const b = document.getElementById('policy-banner');
+    if (b) { b.style.transition = 'opacity 0.3s'; b.style.opacity = '0'; setTimeout(() => b.remove(), 300); }
+  };
+  function injectPolicyBanner() {
+    if (document.getElementById('policy-banner')) return;
+    try {
+      if (localStorage.getItem('ch_policy_seen') === POLICY_VERSION) return;
+    } catch {}
+    const el = document.createElement('div');
+    el.id = 'policy-banner';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:#1a2a3a;border:1px solid #3a5a7a;border-radius:12px;padding:16px 24px;max-width:480px;width:calc(100% - 48px);box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:10px';
+    el.innerHTML =
+      '<div style="display:flex;align-items:flex-start;gap:12px">' +
+        '<span style="font-size:22px;flex-shrink:0">📋</span>' +
+        '<div>' +
+          '<div style="font-weight:700;color:#e0e0e0;margin-bottom:4px" data-i18n="home.policy_banner_title">' + esc(t('home.policy_banner_title')) + '</div>' +
+          '<div style="color:#a0b8c8;font-size:13px;line-height:1.5" data-i18n="home.policy_banner_text">' + esc(t('home.policy_banner_text')) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<a href="/terms.html" style="font-size:13px;color:#7c9cbf;text-decoration:none;padding:6px 12px;border:1px solid #3a5a7a;border-radius:6px" data-i18n="home.policy_banner_read">' + esc(t('home.policy_banner_read')) + '</a>' +
+        '<button onclick="dismissPolicyBanner()" style="font-size:13px;background:#3a6a9a;color:#fff;border:none;border-radius:6px;padding:6px 16px;cursor:pointer" data-i18n="home.policy_banner_ok">' + esc(t('home.policy_banner_ok')) + '</button>' +
+      '</div>';
+    document.body.appendChild(el);
+  }
+
   // Авто-запуск
+  // Баннер — после загрузки i18n-словаря (иначе t() вернёт сырые ключи).
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => CH.initHeader());
+    document.addEventListener('DOMContentLoaded', () => { CH.initHeader(); _ensureI18nReady().then(injectPolicyBanner); });
   } else {
     CH.initHeader();
+    _ensureI18nReady().then(injectPolicyBanner);
   }
 
   // При смене языка (кнопка в настройках) хедер не отслеживает data-i18n —

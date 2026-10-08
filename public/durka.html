@@ -1,14 +1,17 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Дурка — сводный лидерборд турниров | Chess Home</title>
 <meta name="description" content="Сводный лидерборд игроков по результатам серии клубных турниров на lichess.org">
 <link rel="icon" type="image/png" href="/img/logo/favicon.png">
 
-<link rel="stylesheet" href="/header.css">
-<script src="/header.js" defer></script>
+<!-- 5.1: было /header.css и /header.js — таких файлов в корне нет, из-за
+     перехвата роутов сервер отдавал на них HTML. Верные пути: -->
+<link rel="stylesheet" href="/css/main.css">
+<script src="/js/header.js" defer></script>
 
 <style>
   :root{
@@ -364,11 +367,7 @@
 </div>
 
 <script>
-function escapeHtml(s){
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  }[c]));
-}
+// escapeHtml (P0, унификация): общая реализация в /js/utils.js
 
 let lbData = [];
 let lbQuery = '';

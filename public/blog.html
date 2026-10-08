@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="blog.page_title">Блог — Chess Home</title>
@@ -629,7 +630,7 @@ function getDevId() {
 }
 const DEVID = getDevId();
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s) { return escapeHtml(s); }
 function formatDate(ts) {
   const locale = CH_I18N.getLang() === 'ru' ? 'ru-RU' : 'en-US';
   return new Date(ts).toLocaleDateString(locale,{day:'numeric',month:'long',year:'numeric'});
