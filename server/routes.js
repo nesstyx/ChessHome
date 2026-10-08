@@ -1406,7 +1406,7 @@ app.get('/api/tournaments/:id', (req, res) => {
   if (authToken_) {
     try { const d = jwt.verify(authToken_, JWT_SECRET); const u = usersCache.get(d.username.toLowerCase()); isAdmin = u?.role === 'admin'; } catch {}
   }
-  res.json({ ...t, participants: sorted, status: getTournamentStatus(t, now), isArchive: t.endsAt < now - 365*24*60*60*1000, blacklist: isAdmin ? (t.blacklist || []) : undefined, createdByIsAdmin: usersCache.get((t.createdBy || '').toLowerCase())?.role === 'admin', teams: getInterclubTeamsInfo(t), teamStandings: computeTeamStandings(t) });
+  res.json({ ...t, participants: sorted, status: getTournamentStatus(t, now), serverNow: now, isArchive: t.endsAt < now - 365*24*60*60*1000, blacklist: isAdmin ? (t.blacklist || []) : undefined, createdByIsAdmin: usersCache.get((t.createdBy || '').toLowerCase())?.role === 'admin', teams: getInterclubTeamsInfo(t), teamStandings: computeTeamStandings(t) });
 });
 
 

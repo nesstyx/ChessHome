@@ -1556,6 +1556,9 @@ async function handleEditTournament(req, res) {
       return res.status(400).json({ error: 'Слишком много ссылок на команды' });
     }
     Object.assign(t, upd);
+    // Старт перенесли в будущее — сбрасываем флаг «старт уже обработан», иначе при
+    // новом старте участников не поставят в очередь и пары не создадутся.
+    if (upd.startsAt !== undefined && upd.startsAt > Date.now()) delete t._startNotified;
     if (upd.startsAt !== undefined || upd.durationMinutes !== undefined) {
       t.endsAt = t.startsAt + t.durationMinutes * 60000;
     }
@@ -2906,6 +2909,11 @@ setInterval(async () => {
             p.waiting = true;
             anyChanged = true;
           }
+        }
+        if (!anyChanged) {
+          // Все уже ждут/играют — всё равно сообщаем комнате, что турнир стартовал,
+          // иначе страница остаётся на «00:00:00» до ручного обновления.
+          io.to(`tournament_${t.id}`).emit('tournament_update', sanitizeTournament(t));
         }
         if (anyChanged) {
           await saveTournament(t);
