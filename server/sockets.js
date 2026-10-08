@@ -36,6 +36,8 @@ const {
   pickIdleWorker,
   removeUserChatMessages,
   safeSecretEqual,
+  isTrustedProxyPeer,
+  cleanIpHeader,
   sanitizeTournament,
   getTournamentStatus,
   verifyToken,
@@ -65,6 +67,40 @@ setInterval(() => {
   }
 }, 30000).unref();
 
+// ── Защита канала воркера (FINDING-14/15) ────────────────────────────────
+const workerAuthFails = new Map(); // ip -> { count, resetAt }
+const WORKER_AUTH_MAX_FAILS = 5;
+const WORKER_AUTH_WINDOW_MS = 10 * 60 * 1000;
+function isWorkerAuthBlocked(ip) {
+  const d = workerAuthFails.get(ip);
+  if (!d) return false;
+  if (Date.now() > d.resetAt) { workerAuthFails.delete(ip); return false; }
+  return d.count >= WORKER_AUTH_MAX_FAILS;
+}
+function registerWorkerAuthFail(ip) {
+  const now = Date.now();
+  let d = workerAuthFails.get(ip);
+  if (!d || now > d.resetAt) {
+    if (workerAuthFails.size > 10000) workerAuthFails.clear(); // защита памяти
+    d = { count: 0, resetAt: now + WORKER_AUTH_WINDOW_MS };
+    workerAuthFails.set(ip, d);
+  }
+  d.count++;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, d] of workerAuthFails) if (now > d.resetAt) workerAuthFails.delete(ip);
+}, 60 * 1000).unref();
+// Строка от воркера — только вывод UCI-движка («info …» / «bestmove …»): ASCII,
+// без угловых скобок и кавычек, не длиннее 1000 символов.
+function sanitizeUciLine(line) {
+  if (typeof line !== 'string' || line.length > 1000) return null;
+  return /^(info|bestmove)[A-Za-z0-9 .\-_:=+\/()]*$/.test(line) ? line : null;
+}
+if (process.env.WORKER_SECRET && process.env.WORKER_SECRET.length < 24) {
+  console.warn('⚠️  WORKER_SECRET короче 24 символов — задайте длинный случайный секрет: node -e "console.log(require(\'crypto\').randomBytes(24).toString(\'hex\'))"');
+}
+
 io.on('connection', (socket) => {
   // Socket.io не использует req.ip — читаем заголовок напрямую из handshake.
   // БАГ БЕЗОПАСНОСТИ (исправлен): раньше брали ПЕРВЫЙ элемент x-forwarded-for —
@@ -72,9 +108,12 @@ io.on('connection', (socket) => {
   // обойти IP-бан и натравить рейт-лимиты на чужой адрес. Теперь доверяем только
   // x-real-ip, который выставляет НАШ Nginx (proxy_set_header X-Real-IP $remote_addr;),
   // а сырой handshake.address остаётся последним фолбэком (адрес самого прокси/клиента).
+  // x-real-ip принимаем только если TCP-сосед — наш прокси (иначе при прямом
+  // подключении клиент подделает заголовок и обойдёт IP-бан/лимиты, FINDING-04).
+  const peerAddr = socket.handshake.address;
   const socketIP = (
-    socket.handshake.headers['x-real-ip']
-    || socket.handshake.address
+    (isTrustedProxyPeer(peerAddr) ? cleanIpHeader(socket.handshake.headers['x-real-ip']) : null)
+    || peerAddr
     || 'unknown'
   );
 
@@ -89,10 +128,18 @@ io.on('connection', (socket) => {
   // Если задан WORKER_SECRET в .env — принимаем воркер-подключения.
   // Если не задан вообще — фича просто выключена, ничего не ломается.
   socket.on('worker_auth', (payload) => {
+    // Брутфорс WORKER_SECRET (FINDING-14): не более 5 неудачных попыток с одного
+    // IP за 10 минут, дальше — отказ без проверки секрета.
+    if (isWorkerAuthBlocked(socketIP)) {
+      socket.emit('worker_auth_error', 'Слишком много попыток, подождите');
+      socket.disconnect(true);
+      return;
+    }
     const secret = typeof payload === 'string' ? payload : payload?.secret;
     // Безопасность (issue L1): сравнение секрета — constant-time (timing-атаки
     // на '!== теоретически позволяют восстанавливать секрет побайтово).
     if (!process.env.WORKER_SECRET || typeof secret !== 'string' || !safeSecretEqual(secret, process.env.WORKER_SECRET)) {
+      registerWorkerAuthFail(socketIP);
       socket.emit('worker_auth_error', 'Неверный секрет');
       socket.disconnect(true);
       return;
@@ -113,17 +160,25 @@ io.on('connection', (socket) => {
   // Формат строки — родной UCI-вывод Stockfish, парсер на клиенте
   // (stockfish-ui.js) уже умеет такие строки читать — не важно,
   // пришли они от локального движка в браузере или от воркера.
-  socket.on('worker_job_progress', ({ jobId, line }) => {
-    const job = analyzeJobs.get(jobId);
-    if (!job) return;
+  // Принимаем только от аутентифицированного воркера, которому задача выдана,
+  // и только корректные UCI-строки (FINDING-15): раньше любой сокет с jobId мог
+  // прислать произвольную строку, и она уходила в браузер как есть.
+  socket.on('worker_job_progress', (msg) => {
+    if (!socket.isWorker || !msg || typeof msg !== 'object') return;
+    const job = analyzeJobs.get(msg.jobId);
+    if (!job || job.workerSocketId !== socket.id) return;
+    const line = sanitizeUciLine(msg.line);
+    if (!line) return;
     const requester = io.sockets.sockets.get(job.requesterSocketId);
     if (requester) requester.emit('analyze_line', line);
   });
-  socket.on('worker_job_done', ({ jobId, line }) => {
-    const job = analyzeJobs.get(jobId);
-    if (!job) return;
+  socket.on('worker_job_done', (msg) => {
+    if (!socket.isWorker || !msg || typeof msg !== 'object') return;
+    const job = analyzeJobs.get(msg.jobId);
+    if (!job || job.workerSocketId !== socket.id) return;
+    const line = sanitizeUciLine(msg.line);
     const requester = io.sockets.sockets.get(job.requesterSocketId);
-    if (requester) requester.emit('analyze_line', line);
+    if (requester && line) requester.emit('analyze_line', line);
     const w = workers.get(job.workerSocketId);
     if (w) w.busy = false;
     analyzeJobs.delete(jobId);
