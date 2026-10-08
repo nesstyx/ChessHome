@@ -193,6 +193,9 @@ const ChessTV = (() => {
     // Кнопка
     const watchBtn = document.createElement('button');
     watchBtn.className = 'btn btn-secondary btn-sm tv-watch-btn';
+    // 3.5: кнопка рендерилась пустой — добавлен текст (i18n-ключа в tv.html нет,
+    // файл не подключает i18n.js — поэтому литерал, как в остальном tv.js).
+    watchBtn.textContent = 'Смотреть';
     watchBtn.addEventListener('click', () => openGame(game.id));
     info.appendChild(watchBtn);
 
@@ -249,9 +252,8 @@ const ChessTV = (() => {
     el.innerHTML = html;
   }
 
-  function rerenderAllBoards() {
-    games.forEach(g => renderMiniBoard(g.id));
-  }
+  // Мёртвая rerenderAllBoards() УДАЛЕНА (3.5) — объявлялась, но ни разу
+  // не вызывалась и не экспортировалась.
 
   // ─── ОТКРЫТЬ ПАРТИЮ ───────────────────────────────────────────
   function openGame(gameId) {

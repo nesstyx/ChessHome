@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chess Home | ⚡Puzzle Storm</title>
@@ -1352,9 +1353,7 @@
 
   // ── Utils ──────────────────────────────────────────────────
   function setText(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
-  function esc(s) {
-    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
+  function esc(s) { return escapeHtml(s); }
 
   // ── Init ───────────────────────────────────────────────────
   window.addEventListener('DOMContentLoaded', () => {

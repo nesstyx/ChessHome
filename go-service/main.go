@@ -1,19 +1,14 @@
 package main
 
 import (
-        "context"
         "encoding/json"
         "log"
         "math"
         "net/http"
         "os"
 
-        "github.com/jackc/pgx/v5/pgxpool"
-
         "chesshome-go/ratingsystem"
 )
-
-var db *pgxpool.Pool
 
 type ratingRequest struct {
         WhiteRating float64 `json:"whiteRating"`
@@ -29,6 +24,15 @@ type ratingResponse struct {
 // Debug-эндпоинты /test и /dbtest УДАЛЕНЫ (аудит безопасности, пункт M5):
 // они были доступны снаружи через nginx (/go/ -> 127.0.0.1:8081) и раскрывали
 // служебную информацию (счётчик пользователей, страница-заглушка).
+
+// Подключение к PostgreSQL УДАЛЕНО (мёртвый код): ни ratingHandler, ни
+// другие обработчики к базе не обращаются — пул соединений простаивал,
+// а без DATABASE_URL сервис вообще падал при старте и блокировал расчёт
+// рейтингов. Зависимость github.com/jackc/pgx/v5 убрана из go.mod/vendor.
+
+// Эндпоинт /api/rating/puzzle/calculate и puzzleRatingHandler УДАЛЕНЫ:
+// расчёт рейтинга задач выполняется нативно в Node (routes.js,
+// ratingDelta = correct ? 15 : -10) — потребителей у эндпоинта не было.
 
 func ratingHandler(w http.ResponseWriter, r *http.Request) {
         if r.Method != http.MethodPost {
@@ -72,71 +76,13 @@ func ratingHandler(w http.ResponseWriter, r *http.Request) {
         })
 }
 
-type puzzleRatingRequest struct {
-        PlayerRating float64 `json:"playerRating"`
-        PuzzleRating float64 `json:"puzzleRating"`
-        Solved       bool    `json:"solved"`
-}
-
-type puzzleRatingResponse struct {
-        PlayerRating int `json:"playerRating"`
-        Change       int `json:"change"`
-}
-
-func puzzleRatingHandler(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost {
-                http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-                return
-        }
-
-        var req puzzleRatingRequest
-        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-                http.Error(w, "bad json", http.StatusBadRequest)
-                return
-        }
-
-        var res float64
-        if req.Solved {
-                res = 1
-        } else {
-                res = 0
-        }
-
-        newRating := ratingsystem.CalculatePuzzleRating(req.PlayerRating, req.PuzzleRating, res)
-        rounded := int(math.Round(newRating))
-
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(puzzleRatingResponse{
-                PlayerRating: rounded,
-                Change:       rounded - int(math.Round(req.PlayerRating)),
-        })
-}
-
 func main() {
-        dbURL := os.Getenv("DATABASE_URL")
-        if dbURL == "" {
-                log.Fatal("Не задана переменная окружения DATABASE_URL")
-        }
-
-        var err error
-        db, err = pgxpool.New(context.Background(), dbURL)
-        if err != nil {
-                log.Fatal("Не удалось подключиться к базе: ", err)
-        }
-        defer db.Close()
-
-        if err := db.Ping(context.Background()); err != nil {
-                log.Fatal("База не отвечает на ping: ", err)
-        }
-        log.Println("Подключение к Postgres успешно")
-
         mux := http.NewServeMux()
 
         // БАГ (исправлен): ratingHandler существовал, но НЕ был зарегистрирован —
         // Node.js (core.js calcNewRatings) всегда падал в JS-fallback, Go-расчёт
         // Elo был мёртвым кодом.
         mux.HandleFunc("/api/rating/calculate", ratingHandler)
-        mux.HandleFunc("/api/rating/puzzle/calculate", puzzleRatingHandler)
 
         // Обратный прокси УДАЛЁН (P2): раньше catch-all "/" прогонял через Go
         // ВЕСЬ трафик Node (httputil.NewSingleHostReverseProxy) — лишний хоп,

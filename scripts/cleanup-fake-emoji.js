@@ -6,13 +6,13 @@
 // старой дырой и поставили себе произвольный текст вместо эмодзи),
 // печатает список и сбрасывает им emoji на пустую строку.
 //
-// Запуск:  node cleanup-fake-emoji.js
+// Запуск:  node scripts/cleanup-fake-emoji.js
 //   (без флагов — сначала просто ПОКАЖЕТ, кого затронет)
-// Запуск:  node cleanup-fake-emoji.js --apply
+// Запуск:  node scripts/cleanup-fake-emoji.js --apply
 //   (реально применит UPDATE)
 // ═══════════════════════════════════════════════════════════════
 
-const { pool, PROFILE_EMOJIS } = require('./core');
+const { pool, PROFILE_EMOJIS } = require('../server/core');
 
 const APPLY = process.argv.includes('--apply');
 
@@ -37,7 +37,7 @@ async function main() {
 
     if (!APPLY) {
       console.log('\nЭто был просмотр (dry-run). Чтобы реально сбросить emoji этим пользователям, запусти:');
-      console.log('  node cleanup-fake-emoji.js --apply');
+      console.log('  node scripts/cleanup-fake-emoji.js --apply');
       return;
     }
 

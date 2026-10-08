@@ -115,36 +115,8 @@
 </div>
 <div id="toast-container"></div>
 
-<!-- Баннер обновления политики -->
-<div id="policy-banner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:#1a2a3a;border:1px solid #3a5a7a;border-radius:12px;padding:16px 24px;max-width:480px;width:calc(100% - 48px);box-shadow:0 8px 32px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:10px">
-  <div style="display:flex;align-items:flex-start;gap:12px">
-    <span style="font-size:22px;flex-shrink:0">📋</span>
-    <div>
-      <div style="font-weight:700;color:#e0e0e0;margin-bottom:4px">Мы обновили документы</div>
-      <div style="color:#a0b8c8;font-size:13px;line-height:1.5">Пользовательское соглашение и политика конфиденциальности обновлены 12 июня 2026 года. Продолжая использовать Chess Home, вы принимаете новые условия.</div>
-    </div>
-  </div>
-  <div style="display:flex;gap:8px;justify-content:flex-end">
-    <a href="/terms.html" style="font-size:13px;color:#7c9cbf;text-decoration:none;padding:6px 12px;border:1px solid #3a5a7a;border-radius:6px">Читать</a>
-    <button onclick="dismissPolicyBanner()" style="font-size:13px;background:#3a6a9a;color:#fff;border:none;border-radius:6px;padding:6px 16px;cursor:pointer">Понятно</button>
-  </div>
-</div>
+<!-- 4.5: разметка и скрипт баннера обновления документов перенесены в /js/header.js -->
 
-<script>
-// ── Policy update banner (one-time, cross-page via localStorage) ──
-const POLICY_VERSION = 'v1.1-2025-06-12';
-function dismissPolicyBanner() {
-  localStorage.setItem('ch_policy_seen', POLICY_VERSION);
-  const b = document.getElementById('policy-banner');
-  if (b) { b.style.transition='opacity 0.3s'; b.style.opacity='0'; setTimeout(()=>b.style.display='none',300); }
-}
-(function() {
-  if (localStorage.getItem('ch_policy_seen') !== POLICY_VERSION) {
-    const b = document.getElementById('policy-banner');
-    if (b) { b.style.display='flex'; }
-  }
-})();
-</script>
 <script>
 const API='/api';let currentUser=null;
 // Авторизация теперь через HttpOnly-cookie (ch_token) — не localStorage.

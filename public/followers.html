@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Подписчики — Chess Home</title>
@@ -94,9 +95,7 @@
   // Авторизация теперь через HttpOnly-cookie (ch_token), а не localStorage —
   // куки отправляются автоматически при credentials: 'include'.
 
-  function esc(s) {
-    return String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  }
+  function esc(s) { return escapeHtml(s); }
 
   async function apiGet(path) {
     const res = await fetch(API + path, {

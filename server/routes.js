@@ -10,7 +10,6 @@
 // ═══════════════════════════════════════════════════════════════
 
 const {
-  express,
   bcrypt,
   jwt,
   uuidv4,
@@ -117,7 +116,6 @@ const {
   logAdminAction,
   countTodayByUser,
   makeSlug,
-  forumViewSessions,
   trackForumView,
   handleUnfollow,
   blogAuthMiddleware,
@@ -159,8 +157,6 @@ const {
   tryPairTournamentPlayers,
   finishTournamentGame,
   anticheatBan,
-  startGame,
-  main,
 } = require('./core');
 const moderation = require('./moderation');
 require('./botmoderator');
@@ -253,7 +249,9 @@ app.get('/api/opening-explorer', async (req, res) => {
 });
 
 
-app.get('/engine-play', (req, res) => res.sendFile(path.join(__dirname, '../public/engine-play.html')));
+// 4.4: /engine-play УДАЛЁН (сирота: ни одной ссылки в интерфейсе и sitemap;
+// дублировал доску/часы/модалки на ~500 строк поверх board.js). Отдельный
+// режим игры с движком в продукте не выделялся — анализ есть на /analysis.
 
 app.get('/opening-database', (req, res) => res.sendFile(path.join(__dirname, '../public/opening-database.html')));
 
@@ -286,7 +284,9 @@ app.get('/news/:id/comments', (req, res) => {
 
 app.get('/followers/:username', (req, res) => res.sendFile(path.join(__dirname, '../public/followers.html')));
 
-app.get('/following/:username', (req, res) => res.sendFile(path.join(__dirname, '../public/following.html')));
+// 4.3: /following/:username отдаёт тот же followers.html — страница умеет
+// оба режима (isFollowers определяет эндпоинт по пути), following.html удалён.
+app.get('/following/:username', (req, res) => res.sendFile(path.join(__dirname, '../public/followers.html')));
 
 
 app.get('/dev-diary', (req, res) => res.sendFile(path.join(__dirname, '../public/dev-diary.html')));
@@ -294,6 +294,16 @@ app.get('/dev-diary', (req, res) => res.sendFile(path.join(__dirname, '../public
 app.get('/durka',    (req, res) => res.sendFile(path.join(__dirname, '../public/durka.html')));
 
 app.get('/ai', (req, res) => res.sendFile(path.join(__dirname, '../public/ai.html')));
+
+// Статические страницы — ЕДИНСТВЕННОЕ место регистрации (раньше дублировались
+// с циклом в core.js; /clubs регистрируется ниже отдельно, вместе с /clubs/:id).
+['privacy','terms','about','admin','tournaments','tournament','admin-tournament','report'].forEach(p => {
+  app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, '../public/' + p + '.html')));
+});
+
+// SPA-маршруты (клиентский роутер в index.html) — из core.js.
+const SPA_ROUTES = ['/lobby', '/analysis', '/editor', '/leaderboard'];
+SPA_ROUTES.forEach(r => { app.get(r, (req, res) => res.sendFile(path.join(__dirname, '../public/index.html'))); });
 
 
 // ══════════════════════════════════════════════════════════════
@@ -2365,14 +2375,9 @@ app.post('/api/forum/threads', authMiddleware, rateLimit(limiterStrict), async (
   if (title.length > 120) return res.status(400).json({ error: 'Заголовок слишком длинный (макс 120)' });
   if (body.length > 10000) return res.status(400).json({ error: 'Текст слишком длинный (макс 10 000)' });
 
-  // Ограничение: не более 3 тем в сутки
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const todayCount = forumThreads.filter(t =>
-    t.author.toLowerCase() === user.username.toLowerCase() &&
-    t.createdAt >= dayStart.getTime()
-  ).length;
-  if (todayCount >= 3) {
+  // Ограничение: не более 3 тем в сутки — через общий countTodayByUser
+  // (раньше подсчёт был продублирован инлайн-фильтрацией массива).
+  if (countTodayByUser(forumThreads, user.username) >= 3) {
     return res.status(429).json({ error: 'Вы уже создали 3 темы сегодня. Лимит сбросится в полночь.' });
   }
 

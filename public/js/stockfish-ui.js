@@ -6,7 +6,7 @@ const StockfishAnalyzer = (() => {
   let sf = null;
   let isReady = false;
   let analyzing = false;
-  let currentCallback = null;
+  // Неиспользуемая currentCallback УДАЛЕНА (3.6).
   // Домашний воркер (см. worker-client/) — сильнее и не грузит браузер
   // посетителя. Пробуем его первым; если недоступен/все заняты — сервер
   // сразу ответит analyze_unavailable, и просто продолжаем локально,

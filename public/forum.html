@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="forum.page_title">Forum — Chess Home</title>
@@ -207,8 +208,6 @@ a{color:inherit;text-decoration:none}
 
 
 <div id="forum-app">
-
-<div id="forum-app" style="padding-top:56px">
   <!-- LIST -->
   <div id="view-list">
     <div class="forum-header">
@@ -332,7 +331,7 @@ let currentReplyPage = 1;
 function getDeviceId(){let id=localStorage.getItem('ch_device_id');if(!id){id='dev_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);localStorage.setItem('ch_device_id',id);}return id;}
 const DEVICE_ID=getDeviceId();
 
-function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s) { return escapeHtml(s); }
 
 function timeAgo(ts){
   if(!ts)return'';

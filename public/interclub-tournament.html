@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="interclub.detail_page_title">Межклубный турнир — Chess Home</title>
@@ -277,9 +278,7 @@ async function safeJson(res) {
   try { return await res.json(); }
   catch (e) { throw new Error('Сервер вернул некорректный ответ' + (res.status ? ` (${res.status})` : '') + '. Попробуйте ещё раз.'); }
 }
-function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+function escHtml(s) { return escapeHtml(s); }
 function toast(msg, type = 'success') {
   const el = document.createElement('div');
   el.className = 'toast ' + type;

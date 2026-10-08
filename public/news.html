@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="news.page_title">Новости — Chess Home</title>
@@ -505,7 +506,7 @@ function getDevId() {
 }
 const DEVID = getDevId();
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s) { return escapeHtml(s); }
 function formatDate(ts) { return new Date(ts).toLocaleDateString((window.CH_I18N && CH_I18N.getLang && CH_I18N.getLang() === 'en') ? 'en-US' : 'ru-RU',{day:'numeric',month:'long',year:'numeric'}); }
 function mdRender(text) {
   if (!text) return '';

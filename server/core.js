@@ -1095,9 +1095,9 @@ function ipBanMiddleware(req, res, next) {
   next();
 }
 
-app.use('/api/register', ipBanMiddleware);
-
-app.use('/api/login',    ipBanMiddleware);
+// ipBanMiddleware подключается ТОЛЬКО в цепочках маршрутов /api/register
+// и /api/login в routes.js (раньше он дублировался здесь глобальным
+// app.use и выполнялся дважды на каждый запрос).
 
 
 // ── Получение реального IP клиента ───────────────────────────
@@ -2163,11 +2163,8 @@ async function handleDeletePuzzle(req, res) {
   });
 }
 
-['privacy','terms','about','admin','tournaments','tournament','admin-tournament','clubs', 'report'].forEach(p => { app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, '../public/' + p + '.html'))); });
-
-const SPA_ROUTES = ['/lobby', '/analysis', '/editor', '/leaderboard'];
-
-SPA_ROUTES.forEach(r => { app.get(r, (req, res) => res.sendFile(path.join(__dirname, '../public/index.html'))); });
+// Регистрация маршрутов (страницы и API) вынесена в routes.js —
+// в core.js только состояние, БД, хелперы и функции-контроллеры.
 
 
 async function handleDeleteDevDiaryEntry(req, res) {
@@ -2715,7 +2712,6 @@ async function finishTournamentGame(tournament, game, result, reason) {
     }
   }
   tournament.games.push({ id: game.id, white: game.white, black: game.black, result, reason, moves: game.moves, timeControl: game.timeControl, endedAt: now, berserk: game.berserk, accuracy: game.accuracy || null });
-  checkAnticheat(tournament, game, wp, bp, result);
   // В общую таблицу games и в личную статистику/профиль игрока (updateStats)
   // партия попадает, только если сделан хотя бы 1 полный ход — сама турнирная
   // логика (пары, счёт турнира, история встреч выше) при этом не меняется.
@@ -2752,26 +2748,11 @@ async function finishTournamentGame(tournament, game, result, reason) {
 }
 
 
-const ANTICHEAT_THRESHOLD = 95, ANTICHEAT_STREAK_BAN = 3;
-
-// Спуфинг античита (P0, устранено): раньше бан срабатывал по game.accuracy,
-// а accuracy приходила ПРЯМО ОТ КЛИЕНТА (socket 'game_over'). Даже после
-// санитизации диапазона 0..100 злоумышленник по-прежнему контролировал
-// само число: мог выставить 95%+ себе за 3 партии и «засветиться» перед
-// античитом, либо ПОДСТАВИТЬ соперника, прислав завышенную accuracy в
-// своей партии. Число, которое клиент присылает сам, не может быть
-// основанием для бана — триггер по клиентской accuracy полностью исключён.
-// Серверных сигналов два и оба остаются: (1) timer-based детект движка в
-// make_move (_acSuspect → alert админам), (2) ручные жалобы/модерация.
-// Функция сохранена как точка интеграции будущей СЕРВЕРНОЙ оценки партий
-// (когда accuracy будет считать сервер/движок, а не браузер).
-function checkAnticheat(tournament, game, wp, bp) {
-  // Клиентский game.accuracy здесь сознательно НЕ читается — см. выше.
-  // Реабилитационная логика anticheatBan() остаётся доступной для
-  // серверных источников сигнала.
-  return;
-}
-
+// Античит: пустая заглушка checkAnticheat() и мёртвые константы
+// ANTICHEAT_THRESHOLD / ANTICHEAT_STREAK_BAN УДАЛЕНЫ (мёртвый код).
+// Живые серверные сигналы: timer-based детект движка в make_move
+// (_acSuspect → alert админам) и ручные жалобы/модерация. Реабилитационная
+// логика anticheatBan() остаётся доступной для серверных источников сигнала.
 function anticheatBan(tournament, username) {
   const p = tournament.participants.find(p => p.username === username);
   if (!p || p.anticheatBanned) return;
@@ -3547,7 +3528,6 @@ module.exports = {
   safeSecretEqual,
   parsePuzzleSolution,
   handleDeletePuzzle,
-  SPA_ROUTES,
   handleDeleteDevDiaryEntry,
   handleDeleteDevDiaryComment,
   authMiddleware,
@@ -3572,9 +3552,6 @@ module.exports = {
   FIRST_MOVE_TIMEOUT,
   startTournamentGame,
   finishTournamentGame,
-  ANTICHEAT_THRESHOLD,
-  ANTICHEAT_STREAK_BAN,
-  checkAnticheat,
   anticheatBan,
   startGame,
   serverChess,

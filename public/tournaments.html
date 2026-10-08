@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<script src="/js/utils.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="tournaments.page_title">Турниры — Chess Home</title>
@@ -781,7 +782,9 @@
     }
 
     // ── AUTH ──
-    function escHtmlAttr(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    // 4.1: делегат к каноничной escapeHtml (utils.js) — её набор символов
+    // надмножество старого escHtmlAttr (& < > " + ')
+    function escHtmlAttr(s) { return escapeHtml(s); }
 
     function logout() {
       fetch(API + '/logout', { method: 'POST', credentials: 'same-origin' }).finally(() => location.href = '/');
@@ -1091,9 +1094,7 @@
       if (m > 0) return m + CH_I18N.t('tournaments.duration.minutes');
       return s + CH_I18N.t('tournaments.duration.seconds');
     }
-    function escHtml(s) {
-      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
+function escHtml(s) { return escapeHtml(s); }
     function toast(msg, type = 'success') {
       const el = document.createElement('div');
       el.className = 'toast ' + type;

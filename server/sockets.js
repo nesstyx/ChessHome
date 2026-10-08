@@ -7,10 +7,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const {
-  http,
   uuidv4,
-  fs,
-  app,
   parseCookieHeader,
   socketLimiter,
   bannedIPs,
