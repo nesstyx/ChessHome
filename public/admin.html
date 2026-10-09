@@ -288,6 +288,27 @@
         </div>
 
         <div class="settings-section" style="margin-bottom:16px">
+          <div class="settings-title">🎯 Вероятные дубликаты <span id="twins-prob-count" style="color:var(--text-muted);font-weight:400;font-size:14px"></span></div>
+          <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;line-height:1.5">
+            Оценка по нескольким независимым сигналам: серверная cookie устройства, IP и подсеть, видеокарта, экран, шрифты,
+            отрисовка canvas и звука. Совпадения у многих аккаунтов (общий Wi-Fi, одинаковые телефоны) почти ничего не весят,
+            редкие — весят много. Это вероятность того, что аккаунтами пользуется <b>один человек или одно и то же устройство</b>:
+            брата с сестрой за одним компьютером система отличить не может — для таких пар нажмите «Разные люди», и пара больше не покажется.
+            Система никого не банит.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+            <label style="font-size:12.5px;color:var(--text-muted)">Показывать от</label>
+            <select class="form-input" id="twins-min" onchange="loadProbTwins()" style="width:auto">
+              <option value="0.3">30%</option><option value="0.5" selected>50%</option>
+              <option value="0.7">70%</option><option value="0.85">85%</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="loadProbTwins()">🔄 Пересчитать</button>
+            <span id="twins-prob-stats" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+          <div id="twins-prob-list" style="margin-top:10px"></div>
+        </div>
+
+        <div class="settings-section" style="margin-bottom:16px">
           <div class="settings-title">📡 Группы по IP <span id="twinks-ip-count" style="color:var(--text-muted);font-weight:400;font-size:14px"></span></div>
           <div id="twinks-ip-list" style="margin-top:10px"><div style="text-align:center;padding:40px"><div class="spinner" style="margin:0 auto"></div></div></div>
         </div>
@@ -367,6 +388,51 @@ const API='/api';let currentUser=null;
 function getSettings(){try{return JSON.parse(localStorage.getItem('ch_settings')||'{}');}catch{return{};}}
 function applySettings(){const s=getSettings();if(s.boardLight)document.documentElement.style.setProperty('--board-light',s.boardLight);if(s.boardDark)document.documentElement.style.setProperty('--board-dark',s.boardDark);}
 // safeJson() — глобальная, из /js/utils.js
+// ── Свои окна вместо системных prompt()/confirm() ──────────────────────────
+// Системные диалоги рисует сам браузер: CSS на них не влияет, и они могут
+// обрезаться/съезжать (особенно с закреплённой шапкой и при масштабе).
+function _askModal(message, opts) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65)';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:440px;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.5)';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:15px;line-height:1.45;margin-bottom:14px;white-space:pre-wrap;word-break:break-word';
+    msg.textContent = message;
+    box.appendChild(msg);
+    let input = null;
+    if (opts.input) {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.value = opts.defaultValue || '';
+      input.maxLength = 300;
+      input.style.cssText = 'width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:16px;background:var(--bg-card);color:inherit;border:1px solid var(--border);border-radius:8px;font:inherit';
+      box.appendChild(input);
+    }
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;justify-content:flex-end';
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-ghost'; cancel.textContent = 'Отмена';
+    const ok = document.createElement('button');
+    ok.className = 'btn btn-primary'; ok.textContent = 'ОК';
+    row.appendChild(cancel); row.appendChild(ok); box.appendChild(row);
+    wrap.appendChild(box); document.body.appendChild(wrap);
+    const done = v => { document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    const accept = () => done(input ? input.value : true);
+    const reject = () => done(input ? null : false);
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); reject(); }
+      else if (e.key === 'Enter') { e.preventDefault(); accept(); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    ok.onclick = accept; cancel.onclick = reject;
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) reject(); });
+    setTimeout(() => { if (input) { input.focus(); input.select(); } else ok.focus(); }, 0);
+  });
+}
+function askText(message, defaultValue = '') { return _askModal(message, { input: true, defaultValue }); }
+function askConfirm(message) { return _askModal(message, { input: false }); }
 async function apiGet(path){const res=await fetch(API+path,{credentials:'same-origin'});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
 async function apiPost(path,body){const res=await fetch(API+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
 async function apiPatch(path,body){const res=await fetch(API+path,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
@@ -596,7 +662,7 @@ async function puzzleLoad() {
       delBtn.style.flexShrink = '0';
       delBtn.textContent = '🗑 Удалить';
       delBtn.onclick = async () => {
-        if (!confirm('Удалить задачу «' + p.title + '»?\nЭто нельзя отменить.')) return;
+        if (!await askConfirm('Удалить задачу «' + p.title + '»?\nЭто нельзя отменить.')) return;
         try {
           // POST вместо DELETE — см. комментарий у reviewBtn выше.
           await apiPost('/admin/puzzles/' + encodeURIComponent(p.id) + '/delete', {});
@@ -635,7 +701,7 @@ async function sendSystemMessage() {
   const username = (document.getElementById('bc-username')?.value || '').trim();
   if (!text) { toast('Введите текст сообщения', 'error'); return; }
   if (target === 'user' && !username) { toast('Укажите ник пользователя', 'error'); return; }
-  if (target === 'all' && !confirm('Отправить это сообщение ВСЕМ пользователям?')) return;
+  if (target === 'all' && !await askConfirm('Отправить это сообщение ВСЕМ пользователям?')) return;
 
   const btn = document.getElementById('bc-send-btn');
   btn.disabled = true;
@@ -742,7 +808,7 @@ function renderUserList(users, container) {
       if (u.role === 'admin') {
         const ra = document.createElement('button'); ra.className='btn btn-ghost btn-sm'; ra.title='Снять роль администратора'; ra.textContent='👑 Снять админа';
         ra.onclick = async () => {
-          if (!confirm('Снять роль администратора у ' + u.username + '?')) return;
+          if (!await askConfirm('Снять роль администратора у ' + u.username + '?')) return;
           ra.disabled = true;
           try { await apiPost('/admin/role', { username: u.username, grant: false }); toast('Роль администратора снята', 'success'); loadAdminUsers(); }
           catch(e) { toast('Ошибка: ' + e.message, 'error'); ra.disabled = false; }
@@ -751,7 +817,7 @@ function renderUserList(users, container) {
       } else if (!u.banned) {
         const ga = document.createElement('button'); ga.className='btn btn-ghost btn-sm'; ga.title='Выдать роль администратора'; ga.textContent='👑 Админ';
         ga.onclick = async () => {
-          if (!confirm('Выдать роль администратора ' + u.username + '?')) return;
+          if (!await askConfirm('Выдать роль администратора ' + u.username + '?')) return;
           ga.disabled = true;
           try { await apiPost('/admin/role', { username: u.username, grant: true }); toast('Роль администратора выдана', 'success'); loadAdminUsers(); }
           catch(e) { toast('Ошибка: ' + e.message, 'error'); ga.disabled = false; }
@@ -763,7 +829,7 @@ function renderUserList(users, container) {
       if (u.vip) {
         const rv = document.createElement('button'); rv.className='btn btn-ghost btn-sm'; rv.textContent='✨ Снять VIP';
         rv.onclick = async () => {
-          if (!confirm('Снять VIP-значок у ' + u.username + '?')) return;
+          if (!await askConfirm('Снять VIP-значок у ' + u.username + '?')) return;
           rv.disabled = true;
           try { await apiPost('/admin/vip/revoke', { username: u.username }); toast('VIP снят', 'success'); loadAdminUsers(); }
           catch(e) { toast('Ошибка: ' + e.message, 'error'); rv.disabled = false; }
@@ -772,7 +838,7 @@ function renderUserList(users, container) {
       } else {
         const gv = document.createElement('button'); gv.className='btn btn-ghost btn-sm'; gv.textContent='✨ Выдать VIP';
         gv.onclick = async () => {
-          const days = prompt('На сколько дней выдать VIP-значок ' + u.username + '?', '30');
+          const days = await askText('На сколько дней выдать VIP-значок ' + u.username + '?', '30');
           if (days === null) return;
           gv.disabled = true;
           try { await apiPost('/admin/vip/grant', { username: u.username, days: parseInt(days) || 30 }); toast('VIP выдан', 'success'); loadAdminUsers(); }
@@ -806,7 +872,7 @@ function renderUserList(users, container) {
     } else {
       const b = document.createElement('button'); b.className='btn btn-danger btn-sm'; b.textContent='🚫 Бан';
       b.onclick = async () => {
-        const r=prompt('Причина бана:','Нарушение правил');
+        const r=await askText('Причина бана:','Нарушение правил');
         if(!r) return;
         b.disabled = true;
         try {
@@ -839,7 +905,7 @@ function renderUserList(users, container) {
       } else {
         const sb = document.createElement('button'); sb.className='btn btn-ghost btn-sm'; sb.title='Пишет как обычно, но его никто не видит и не получает от него сообщений — он сам об этом не узнает'; sb.textContent='🌫️ Теневой бан';
         sb.onclick = async () => {
-          const r = prompt('Причина теневого бана для ' + u.username + ':', 'Нарушение правил');
+          const r = await askText('Причина теневого бана для ' + u.username + ':', 'Нарушение правил');
           if (!r) return;
           sb.disabled = true;
           try { await apiPost('/admin/shadowban', { username: u.username, reason: r }); toast('Теневой бан включён', 'success'); loadAdminUsers(); }
@@ -1000,7 +1066,7 @@ async function loadBotStatus() {
         const u = document.createElement('button');
         u.className = 'btn btn-ghost btn-sm'; u.textContent = '↩ Отменить бан';
         u.onclick = async () => {
-          if (!confirm('Снять бан с ' + r.user + '? Бот не будет трогать его 24 часа.')) return;
+          if (!await askConfirm('Снять бан с ' + r.user + '? Бот не будет трогать его 24 часа.')) return;
           try { await apiPost('/admin/botmoderator/undo', { username: r.user }); toast('Бан снят', 'success'); loadBotStatus(); loadAutomod('new'); }
           catch (e) { toast('Ошибка: ' + e.message, 'error'); }
         };
@@ -1078,7 +1144,7 @@ async function loadAutomod(status) {
         mk('btn-secondary', '✅ Пропустить', () => apiPost('/admin/automod/flags/' + f.id + '/skip', {}));
         mk('btn-secondary', '👻 Теневой бан', () => apiPost('/admin/automod/flags/' + f.id + '/shadowban', {}));
         mk('btn-danger', '🚫 Забанить', async () => {
-          const reason = prompt('Причина бана:', 'Автомодерация: ' + f.kindLabel);
+          const reason = await askText('Причина бана:', 'Автомодерация: ' + f.kindLabel);
           if (!reason) throw new Error('отменено');
           await apiPost('/admin/automod/flags/' + f.id + '/ban', { reason });
         });
@@ -1185,7 +1251,7 @@ async function loadReports(status) {
       banBtn.className = 'btn btn-danger btn-sm';
       banBtn.textContent = '🚫 Забанить ' + r.targetUsername;
       banBtn.onclick = async () => {
-        const reason = prompt('Причина бана:', r.reason);
+        const reason = await askText('Причина бана:', r.reason);
         if (!reason) return;
         banBtn.disabled = true;
         try {
@@ -1249,7 +1315,7 @@ async function loadAdminChat() {
       delBtn.style.flexShrink = '0';
       delBtn.textContent = '🗑';
       delBtn.onclick = async () => {
-        if (!confirm('Удалить сообщение?')) return;
+        if (!await askConfirm('Удалить сообщение?')) return;
         delBtn.disabled = true;
         try {
           // POST вместо DELETE — см. комментарий у reviewBtn выше.
@@ -1418,7 +1484,7 @@ async function adminReplyAppeal() {
 
 async function setAppealStatus(status) {
   if (!currentAppealId) return;
-  if (status === 'closed' && !confirm('Закрыть обращение?')) return;
+  if (status === 'closed' && !await askConfirm('Закрыть обращение?')) return;
   try {
     // POST вместо PATCH — см. комментарий у reviewBtn выше.
     await apiPost('/admin/appeals/' + currentAppealId + '/status', { status });
@@ -1563,6 +1629,7 @@ async function loadTwinks() {
   try {
     twinksData = await apiGet('/admin/multiaccounts');
     renderTwinks();
+    loadProbTwins();
   } catch (e) {
     document.getElementById('twinks-ip-list').innerHTML  = '<p style="color:var(--red)">Ошибка: ' + escapeHtml(e.message) + '</p>';
     document.getElementById('twinks-dev-list').innerHTML = '';
@@ -1583,6 +1650,7 @@ function renderTwinks() {
 
   renderTwinkGroupList(ipGroups,  document.getElementById('twinks-ip-list'),  'ip');
   renderTwinkGroupList(devGroups, document.getElementById('twinks-dev-list'), 'device');
+  renderProbTwins();
 }
 
 function renderTwinkGroupList(groups, container, kind) {
@@ -1651,7 +1719,7 @@ function renderTwinkUserRow(u) {
     banBtn.style.marginLeft = 'auto';
     banBtn.textContent = '🚫 Бан';
     banBtn.onclick = async () => {
-      const r = prompt('Причина бана для ' + u.username + ':', 'Мультиаккаунт');
+      const r = await askText('Причина бана для ' + u.username + ':', 'Мультиаккаунт');
       if (!r) return;
       banBtn.disabled = true;
       try { await apiPost('/admin/ban', { username: u.username, reason: r }); toast(u.username + ' забанен', 'success'); loadTwinks(); }
@@ -1665,7 +1733,7 @@ function renderTwinkUserRow(u) {
 async function banTwinkGroup(g, btn) {
   const targets = g.users.filter(u => !u.banned && u.role !== 'admin');
   if (!targets.length) return;
-  if (!confirm('Забанить ' + targets.length + ' аккаунт(ов) в этой группе? Действие можно откатить через «Разбан» в списке пользователей.')) return;
+  if (!await askConfirm('Забанить ' + targets.length + ' аккаунт(ов) в этой группе? Действие можно откатить через «Разбан» в списке пользователей.')) return;
   btn.disabled = true;
   let ok = 0, fail = 0;
   for (const u of targets) {
@@ -1674,6 +1742,121 @@ async function banTwinkGroup(g, btn) {
   }
   toast('Забанено: ' + ok + (fail ? (', ошибок: ' + fail) : ''), fail ? 'error' : 'success');
   loadTwinks();
+}
+
+// ─── ВЕРОЯТНЫЕ ДУБЛИКАТЫ (оценка по сигналам) ───────────────────
+let probTwins = { pairs: [], stats: {} };
+
+async function loadProbTwins() {
+  const box = document.getElementById('twins-prob-list');
+  if (!box) return;
+  box.innerHTML = '<div style="text-align:center;padding:30px"><div class="spinner" style="margin:0 auto"></div></div>';
+  const min = document.getElementById('twins-min').value;
+  try {
+    probTwins = await apiGet('/admin/twins?min=' + encodeURIComponent(min));
+    renderProbTwins();
+  } catch (e) {
+    box.innerHTML = '<p style="color:var(--red)">Ошибка: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+function probColor(p) { return p >= 0.85 ? 'var(--red)' : (p >= 0.6 ? '#e0a030' : '#c9b458'); }
+function probWord(p)  { return p >= 0.85 ? 'Очень вероятно' : (p >= 0.6 ? 'Вероятно' : 'Возможно'); }
+
+function renderProbTwins() {
+  const box = document.getElementById('twins-prob-list');
+  if (!box) return;
+  const q = (document.getElementById('twinks-filter').value || '').trim().toLowerCase();
+  const pairs = (probTwins.pairs || []).filter(p => !q || p.a.includes(q) || p.b.includes(q));
+  const st = probTwins.stats || {};
+  document.getElementById('twins-prob-count').textContent = '(' + pairs.length + ')';
+  document.getElementById('twins-prob-stats').textContent = st.accounts
+    ? ('Аккаунтов: ' + st.accounts + ' · с данными об окружении браузера: ' + (st.withHw || 0) + ' · с данными о сети: ' + (st.withNet || 0))
+    : '';
+  if (!pairs.length) {
+    box.innerHTML = '<p style="color:var(--text-muted);padding:12px 0">Подходящих пар не найдено' +
+      ((st.withHw || 0) < 20 ? ' — данных об окружении браузеров пока мало, они накапливаются по мере входов игроков.' : '.') + '</p>';
+    return;
+  }
+  box.innerHTML = '';
+  pairs.forEach(p => box.appendChild(renderProbPair(p)));
+}
+
+function renderProbPair(p) {
+  const card = document.createElement('div');
+  card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:10px';
+
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px';
+  const badge = document.createElement('span');
+  const pct = Math.round(p.p * 100);
+  badge.style.cssText = 'font-weight:800;font-size:16px;padding:3px 10px;border-radius:8px;color:#111;background:' + (p.confirmed ? 'var(--accent)' : probColor(p.p));
+  badge.textContent = p.confirmed ? '✔ подтверждено' : (pct + '%');
+  head.appendChild(badge);
+  if (!p.confirmed) {
+    const w = document.createElement('span');
+    w.style.cssText = 'font-size:12.5px;color:var(--text-secondary)';
+    w.textContent = probWord(p.p) + (p.groups && p.groups.length ? ' · независимых групп признаков: ' + p.groups.length + ' (' + p.groups.join(', ') + ')' : ' · только одна группа признаков');
+    head.appendChild(w);
+  }
+  card.appendChild(head);
+
+  const names = document.createElement('div');
+  names.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;font-size:14px;margin-bottom:8px';
+  [p.userA, p.userB].forEach(u => {
+    const s = document.createElement('span');
+    const a = document.createElement('a');
+    a.href = '/profile/' + u.username; a.target = '_blank'; a.rel = 'noopener';
+    a.style.cssText = 'font-weight:700;color:var(--text-primary);text-decoration:none';
+    a.textContent = u.username;
+    s.appendChild(a);
+    const meta = document.createElement('span');
+    meta.style.cssText = 'color:var(--text-muted);font-size:12px;margin-left:6px';
+    meta.textContent = (u.rating ? '★' + u.rating : '') + (u.createdAt ? ' · рег. ' + new Date(u.createdAt).toLocaleDateString('ru') : '') + (u.banned ? ' · БАН' : '') + (u.role === 'admin' ? ' · ADMIN' : '');
+    s.appendChild(meta);
+    names.appendChild(s);
+  });
+  card.appendChild(names);
+
+  const chips = document.createElement('div');
+  chips.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px';
+  (p.evidence || []).forEach(e => {
+    const c = document.createElement('span');
+    c.style.cssText = 'font-size:11.5px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);color:var(--text-secondary)';
+    c.textContent = e.label + ' · ' + (e.n === 2 ? 'только у этих двух' : 'у ' + e.n + ' акк.');
+    c.title = 'Вес свидетельства: ' + e.w;
+    chips.appendChild(c);
+  });
+  card.appendChild(chips);
+
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+  const mk = (text, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls + ' btn-sm'; b.textContent = text; b.onclick = () => fn(b); btns.appendChild(b); return b; };
+  const label = async (b, lab, okMsg) => {
+    b.disabled = true;
+    try { await apiPost('/admin/twins/label', { a: p.a, b: p.b, label: lab }); toast(okMsg, 'success'); loadProbTwins(); }
+    catch (e) { toast('Ошибка: ' + e.message, 'error'); b.disabled = false; }
+  };
+  mk('👥 Разные люди', 'btn-secondary', b => label(b, 'different', 'Пара скрыта: разные люди'));
+  if (p.confirmed) mk('↩ Снять отметку', 'btn-ghost', b => label(b, 'clear', 'Отметка снята'));
+  else mk('✅ Один человек', 'btn-ghost', b => label(b, 'same', 'Отмечено: один человек'));
+
+  const targets = [p.userA, p.userB].filter(u => !u.banned && u.role !== 'admin');
+  if (targets.length) {
+    mk('🚫 Забанить ' + (targets.length > 1 ? 'обоих' : targets[0].username), 'btn-danger', async b => {
+      const r = await askText('Причина бана (' + targets.map(u => u.username).join(', ') + '):', 'Мультиаккаунт');
+      if (!r) return;
+      b.disabled = true;
+      let ok = 0, fail = 0;
+      for (const u of targets) {
+        try { await apiPost('/admin/ban', { username: u.username, reason: r }); ok++; } catch { fail++; }
+      }
+      toast('Забанено: ' + ok + (fail ? (', ошибок: ' + fail) : ''), fail ? 'error' : 'success');
+      loadProbTwins();
+    });
+  }
+  card.appendChild(btns);
+  return card;
 }
 
 // ─── ЛОГ ДЕЙСТВИЙ АДМИНИСТРАТОРОВ ──────────────────────────────
