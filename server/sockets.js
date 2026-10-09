@@ -49,6 +49,7 @@ const {
   serverChess,
   limiterSocketConnect,
 } = require('./core');
+const twins = require('./twins');
 const moderation = require('./moderation');
 
 // ── Жизненный цикл вызовов (challenges) ────────────────────────
@@ -236,6 +237,7 @@ io.on('connection', (socket) => {
     sessions.set(socket.id, { username: p.username });
     if (isFirstSocket) onlineUsers.add(p.username);
     socket.username = p.username;
+    twins.recordLogin(p.username, socketIP, handshakeCookies.ch_device_id);
 
     const user = await getUser(p.username.toLowerCase());
     if (user?.banned) { socket.emit('auth_error', 'Аккаунт заблокирован: ' + (user.banReason || 'нарушение правил')); socket.disconnect(); return; }

@@ -154,6 +154,7 @@ const {
   anticheatBan,
 } = require('./core');
 const moderation = require('./moderation');
+const twins = require('./twins');   // оценка «один человек» по сигналам устройства/сети
 require('./botmoderator');
 
 // Единая серверная реализация экранирования HTML — в server/utils.js
@@ -366,6 +367,7 @@ app.post('/api/register',
       // VPN/прокси-фильтр, лимит аккаунтов на IP и на устройство,
       // а также проверка на похожие ники.
       await saveUser(userData);
+      twins.recordLogin(userData.username, ip, deviceId);   // не блокирует, ошибки глотает
 
       const token = jwt.sign({ userId: userData.id, username: userData.username }, JWT_SECRET, { expiresIn: '7d' });
       // Токен больше не возвращается в теле ответа — только в HttpOnly cookie,
@@ -411,6 +413,7 @@ app.post('/api/login',
       return res.status(401).json({ error: 'Неверное имя или пароль' });
     }
     clearLoginFailStreak(usernameLow, loginIP);
+    twins.recordLogin(user.username, loginIP, req.deviceId);
 
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('ch_token', token, AUTH_COOKIE_OPTS);
@@ -465,6 +468,7 @@ app.post('/api/account/delete', authMiddleware, rateLimit(limiterAuth, 'Слиш
       )
     `);
     await db('INSERT INTO deleted_usernames (username_low, deleted_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.username.toLowerCase(), Date.now()]);
+    await twins.forgetUser(user.username);   // удаляем признаки устройства удалённого аккаунта (privacy.html, 2.4)
 
     await withTransaction(async (client) => {
       const tableExists = async (name) => {
@@ -2055,6 +2059,9 @@ app.get('/api/admin/multiaccounts', authMiddleware, async (req, res) => {
   });
 });
 
+
+// ── Вероятностная оценка дубликатов: POST /api/sig, GET /api/admin/twins, POST /api/admin/twins/label ──
+twins.mount(app, { authMiddleware, requireAdmin, logAdminAction, getIP });
 
 // ── Дашборд администратора ──────────────────────────────────────
 // Сводка для главного экрана админки: онлайн, регистрации/партии по

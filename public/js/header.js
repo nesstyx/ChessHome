@@ -1239,3 +1239,13 @@
   });
 
 })();
+
+// ── Сбор признаков окружения для защиты от мультиаккаунтов (см. /js/sig.js, privacy.html 2.4) ──
+// Грузим один раз на любой странице, где подключён хедер. Защита от двойной загрузки внутри sig.js.
+(function () {
+  if (window.__chSig || document.querySelector('script[src="/js/sig.js"]')) return;
+  var s = document.createElement('script');
+  s.src = '/js/sig.js';
+  s.defer = true;
+  document.head.appendChild(s);
+})();
