@@ -4,9 +4,14 @@
   "description": "Chess Home - шахматная платформа",
   "main": "server/index.js",
   "scripts": {
+    "prestart": "node migrations/migrate.js",
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
+    "migrate": "node migrations/migrate.js",
     "import-puzzles": "node scripts/import-puzzles.js"
+  },
+  "engines": {
+    "node": ">=18.14.0"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

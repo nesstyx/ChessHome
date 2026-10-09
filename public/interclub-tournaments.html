@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="interclub.page_title">Межклубные турниры — Chess Home</title>
@@ -396,7 +397,6 @@
   .team-select-option-name { font-weight: 700; color: var(--text-primary); font-size: 14px; }
 
   /* ── TOAST ── */
-  #toast-container { position: fixed; bottom: 28px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
   .toast { padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; background: var(--bg-card); border: 1px solid var(--border); box-shadow: var(--shadow); animation: slideRight 0.3s ease; pointer-events: all; }
   .toast.success { border-color: var(--green); color: var(--green); }
   .toast.error { border-color: var(--red); color: var(--red); }
@@ -531,7 +531,6 @@
   </div>
 </div>
 
-<div id="toast-container"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -558,18 +557,7 @@ async function waitI18nReady() {
   if (window.CH_I18N && window.CH_I18N.onReady) await new Promise(r => CH_I18N.onReady(r));
 }
 
-async function safeJson(res) {
-  try { return await res.json(); }
-  catch (e) { throw new Error('Сервер вернул некорректный ответ' + (res.status ? ` (${res.status})` : '') + '. Попробуйте ещё раз.'); }
-}
-function escHtml(s) { return escapeHtml(s); }
-function toast(msg, type = 'success') {
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3500);
-}
+// safeJson() — глобальная, из /js/utils.js; toast() — из /js/toast.js; экранирование — escapeHtml()
 
 // ── MSK TIME HELPERS ──
 // Все даты турниров вводятся и показываются в московском времени (UTC+3, без перехода на летнее/зимнее),
@@ -610,8 +598,6 @@ async function init() {
     CH.setActivePage('tournaments');
   }
 
-  // Раньше создавать межклубные турниры мог только сайт-админ — теперь
-  // доступно любому залогиненному пользователю (см. POST /api/tournaments/interclub).
   if (currentUser) {
     document.getElementById('btn-open-create').style.display = 'inline-flex';
   }

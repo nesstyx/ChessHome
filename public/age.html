@@ -539,10 +539,6 @@ body::after {
 
   // Инициализация хедера.
   // CH.initHeader() сам по себе не знает, залогинен ли пользователь —
-  // раньше это как-то читалось из localStorage, но токен теперь в
-  // HttpOnly-cookie, поэтому явно спрашиваем сервер через /api/me
-  // и передаём результат в CH.setCurrentUser, иначе хедер всегда
-  // будет показывать "Вход/Регистрация".
   if (window.CH) {
     CH.initHeader({ activePage: 'age' });
     CH.setActivePage('age');

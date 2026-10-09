@@ -3,6 +3,7 @@
 
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
 <script src="/js/emojis.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -767,7 +768,7 @@
       <!-- Нужен вход (открыт /profile без логина) -->
       <div id="profile-auth-required" style="display:none; text-align:center; padding:60px">
         <div style="margin-bottom:16px" data-i18n="profile.auth_required">Войдите, чтобы посмотреть свой профиль</div>
-        <button class="btn btn-primary" onclick="openLoginModal()" data-i18n="header.login">Войти</button>
+        <button class="btn btn-primary" onclick="CH.openAuthModal('login')" data-i18n="header.login">Войти</button>
       </div>
 
       <!-- Блок ошибки (закрываем ваш недописанный тег) -->
@@ -778,19 +779,8 @@
     </div>
 
   </div>
-  <div class="modal-overlay" id="modal-login">
-    <div class="modal"><button class="modal-close" onclick="closeModal()">✕</button>
-      <h2 data-i18n="profile.login_title">♚ Вход</h2>
-      <form onsubmit="handleLogin(event)">
-        <div class="form-group"><label data-i18n="profile.login_username">Имя</label><input class="form-input" id="login-username"></div>
-        <div class="form-group"><label data-i18n="profile.login_password">Пароль</label><input class="form-input" id="login-password" type="password">
-        </div>
-        <div class="form-error" id="login-error"></div>
-        <div class="form-actions"><button type="submit" class="btn btn-primary" data-i18n="profile.login_submit">Войти</button></div>
-      </form>
-    </div>
-  </div>
-  <div id="toast-container"></div>
+  <!-- Модалка авторизации локально НЕ объявляется: CH.openAuthModal('login')
+       из /js/header.js ведёт на каноничную форму входа на главной (DRY). -->
 
   <!-- Модальное окно выбора эмодзи -->
   <div id="modal-emoji" class="modal-overlay">
@@ -895,14 +885,7 @@
     // которую браузер сам прикладывает к запросам на тот же origin — никакого JS-доступа
     // к ним больше нет, поэтому localStorage/заголовки авторизации на клиенте не нужны.
 
-    async function safeJson(res) {
-      // Если сервер вместо JSON вернул HTML (например, страницу ошибки от
-      // прокси/хостинга, когда метод DELETE/PATCH заблокирован), res.json()
-      // падает с криптичным "JSON.parse: unexpected character at line 1 column 1".
-      // Показываем вместо этого понятную ошибку.
-      try { return await res.json(); }
-      catch { throw new Error(T('profile.server_bad_response', { status: res.status })); }
-    }
+    // safeJson() — глобальная, из /js/utils.js
     async function apiGet(path) {
       const sep = path.includes('?') ? '&' : '?';
       const url = API + path + sep + '_=' + Date.now();
@@ -925,25 +908,12 @@
     }
 
     // escapeHtml (P0, унификация): общая реализация в /js/utils.js
-    function toast(msg, type = 'info') { const c = document.getElementById('toast-container'); if (!c) return; const el = document.createElement('div'); el.className = 'toast ' + type; el.innerHTML = '<span>' + msg + '</span>'; c.appendChild(el); setTimeout(() => el.remove(), 3000); }
+    // toast() — глобальная, из /js/toast.js
     function updateHeaderUI() { if (window.CH) CH.setCurrentUser(currentUser); }
     function closeModal(id) { const modal = document.getElementById(id); if (modal) modal.classList.remove('open'); }
     function openModal(id) { const modal = document.getElementById(id); if (modal) modal.classList.add('open'); }
-    function openLoginModal() { openModal('modal-login'); }
-    async function handleLogin(e) {
-      e.preventDefault();
-      const username = document.getElementById('login-username').value.trim();
-      const password = document.getElementById('login-password').value;
-      try {
-        const data = await apiPost('/login', { username, password });
-        // Токен больше не приходит в теле ответа — сервер положил его в HttpOnly-cookie сам.
-        currentUser = data.user;
-        closeModal('modal-login');
-        updateHeaderUI();
-        toast(T('profile.welcome', { name: username }), 'success');
-        setTimeout(() => location.reload(), 500);
-      } catch (err) { document.getElementById('login-error').textContent = err.message; }
-    }
+    // Локальная форма входа/функции openLoginModal/handleLogin УДАЛЕНЫ (DRY):
+    // вход через CH.openAuthModal('login') — каноничная модалка на главной.
 
     const STREAMERS = ['VLAD', 'Solo', 'aaa', 'GGbers', 'debugger'];
 
@@ -1323,7 +1293,6 @@ window.loadActivity = loadActivity;
     }
 
     // ── Эмодзи: массив EMOJIS вынесен в общий /js/emojis.js (4.2) ──
-    // (подключён в <head>); локальная копия удалена.
 
 
     function openEmojiPicker() {
@@ -1529,7 +1498,6 @@ window.loadActivity = loadActivity;
         const isMe = !!(currentUser && currentUser.username === user.username);
 
         // Аватар: админы получают картинку модератора, стримеры — картинку стримера (/img/).
-        // Остальным кружок остаётся как раньше.
         const avatarEl = document.getElementById('profile-avatar');
         const isStreamer = STREAMERS.some(s => s.toLowerCase() === String(user.username).toLowerCase());
         const avatarSrc = user.role === 'admin' ? '/img/moder.png' : (isStreamer ? '/img/streamer.png' : null);
@@ -1558,7 +1526,6 @@ window.loadActivity = loadActivity;
             bioEl.classList.add('empty');
           }
         }
-        // Клубы пользователя (issue #42): список клубов, где состоит игрок
         loadProfileClubs(user.username);
 
         // Внешние рейтинги (ФШР / FIDE)
@@ -1732,7 +1699,7 @@ window.loadActivity = loadActivity;
         } else {
           hide('profile-loading');
           show('profile-auth-required');
-          openLoginModal();
+          CH.openAuthModal('login');
           return;
         }
       }
@@ -1741,9 +1708,6 @@ window.loadActivity = loadActivity;
     }
     init();
 
-    // ── Клубы профиля (issue #42) ────────────────────────────────
-    // API /api/clubs публичный и возвращает members для каждого клуба —
-    // фильтруем на клиенте одним запросом (клубов на платформе десятки).
     async function loadProfileClubs(username) {
       const card = document.getElementById('profile-clubs-card');
       const listEl = document.getElementById('profile-clubs-list');

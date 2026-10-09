@@ -95,7 +95,6 @@
   // Авторизация теперь через HttpOnly-cookie (ch_token), а не localStorage —
   // куки отправляются автоматически при credentials: 'include'.
 
-  function esc(s) { return escapeHtml(s); }
 
   async function apiGet(path) {
     const res = await fetch(API + path, {
@@ -110,8 +109,8 @@
     const isFollowers = path.includes('/followers/');
     const username = decodeURIComponent(path.split('/').pop());
     document.getElementById('page-title').textContent = isFollowers 
-      ? `Подписчики ${esc(username)}` 
-      : `Подписки ${esc(username)}`;
+      ? `Подписчики ${escapeHtml(username)}` 
+      : `Подписки ${escapeHtml(username)}`;
     
     try {
       const endpoint = isFollowers ? 'followers' : 'following';
@@ -125,10 +124,10 @@
       
       container.innerHTML = data.map(u => `
         <div class="user-item" onclick="window.location='/profile/${encodeURIComponent(u.username)}'">
-          <div class="user-avatar">${esc(u.username[0].toUpperCase())}</div>
+          <div class="user-avatar">${escapeHtml(u.username[0].toUpperCase())}</div>
           <div class="user-info">
             <div class="user-name">
-              ${esc(u.username)} 
+              ${escapeHtml(u.username)} 
               ${u.online ? '<span class="online-dot"></span>' : ''}
             </div>
             <div class="user-rating">Рейтинг: ${u.rating || '—'}</div>

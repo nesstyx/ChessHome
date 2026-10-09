@@ -1,10 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  sockets.js — вся логика Socket.IO (реалтайм: игра, чат, турниры)
 // ═══════════════════════════════════════════════════════════════
-// Один большой io.on('connection', socket => { ... }) — как и раньше,
-// просто вынесен из index.js. Всё общее состояние и хелперы берём
-// из core.js (та же самая память, не копии).
-// ═══════════════════════════════════════════════════════════════
 
 const {
   uuidv4,
@@ -56,9 +52,6 @@ const {
 const moderation = require('./moderation');
 
 // ── Жизненный цикл вызовов (challenges) ────────────────────────
-// TTL открытого вызова в лобби. Раньше pendingChallenges чистился только
-// фильтром при чтении — просроченные записи оставались в памяти навсегда
-// (утечка). Теперь: TTL и при чтении, и периодическая чистка интервалом.
 const CHALLENGE_TTL_MS = 60000;
 setInterval(() => {
   const now = Date.now();
@@ -67,7 +60,6 @@ setInterval(() => {
   }
 }, 30000).unref();
 
-// ── Защита канала воркера (FINDING-14/15) ────────────────────────────────
 const workerAuthFails = new Map(); // ip -> { count, resetAt }
 const WORKER_AUTH_MAX_FAILS = 5;
 const WORKER_AUTH_WINDOW_MS = 10 * 60 * 1000;
@@ -103,13 +95,6 @@ if (process.env.WORKER_SECRET && process.env.WORKER_SECRET.length < 24) {
 
 io.on('connection', (socket) => {
   // Socket.io не использует req.ip — читаем заголовок напрямую из handshake.
-  // БАГ БЕЗОПАСНОСТИ (исправлен): раньше брали ПЕРВЫЙ элемент x-forwarded-for —
-  // а клиент может прислать собственный поддельный заголовок "X-Forwarded-For: 1.2.3.4",
-  // обойти IP-бан и натравить рейт-лимиты на чужой адрес. Теперь доверяем только
-  // x-real-ip, который выставляет НАШ Nginx (proxy_set_header X-Real-IP $remote_addr;),
-  // а сырой handshake.address остаётся последним фолбэком (адрес самого прокси/клиента).
-  // x-real-ip принимаем только если TCP-сосед — наш прокси (иначе при прямом
-  // подключении клиент подделает заголовок и обойдёт IP-бан/лимиты, FINDING-04).
   const peerAddr = socket.handshake.address;
   const socketIP = (
     (isTrustedProxyPeer(peerAddr) ? cleanIpHeader(socket.handshake.headers['x-real-ip']) : null)
@@ -128,16 +113,12 @@ io.on('connection', (socket) => {
   // Если задан WORKER_SECRET в .env — принимаем воркер-подключения.
   // Если не задан вообще — фича просто выключена, ничего не ломается.
   socket.on('worker_auth', (payload) => {
-    // Брутфорс WORKER_SECRET (FINDING-14): не более 5 неудачных попыток с одного
-    // IP за 10 минут, дальше — отказ без проверки секрета.
     if (isWorkerAuthBlocked(socketIP)) {
       socket.emit('worker_auth_error', 'Слишком много попыток, подождите');
       socket.disconnect(true);
       return;
     }
     const secret = typeof payload === 'string' ? payload : payload?.secret;
-    // Безопасность (issue L1): сравнение секрета — constant-time (timing-атаки
-    // на '!== теоретически позволяют восстанавливать секрет побайтово).
     if (!process.env.WORKER_SECRET || typeof secret !== 'string' || !safeSecretEqual(secret, process.env.WORKER_SECRET)) {
       registerWorkerAuthFail(socketIP);
       socket.emit('worker_auth_error', 'Неверный секрет');
@@ -161,8 +142,6 @@ io.on('connection', (socket) => {
   // (stockfish-ui.js) уже умеет такие строки читать — не важно,
   // пришли они от локального движка в браузере или от воркера.
   // Принимаем только от аутентифицированного воркера, которому задача выдана,
-  // и только корректные UCI-строки (FINDING-15): раньше любой сокет с jobId мог
-  // прислать произвольную строку, и она уходила в браузер как есть.
   socket.on('worker_job_progress', (msg) => {
     if (!socket.isWorker || !msg || typeof msg !== 'object') return;
     const job = analyzeJobs.get(msg.jobId);
@@ -181,7 +160,7 @@ io.on('connection', (socket) => {
     if (requester && line) requester.emit('analyze_line', line);
     const w = workers.get(job.workerSocketId);
     if (w) w.busy = false;
-    analyzeJobs.delete(jobId);
+    analyzeJobs.delete(msg.jobId);
   });
 
   // ── Запрос анализа от обычного посетителя (страница «Анализ») ──
@@ -222,11 +201,6 @@ io.on('connection', (socket) => {
   });
 
   // Обёртка над socket.on: rate-limit + изоляция ошибок.
-  // Раньше исключение из синхронного хендлера или rejected-промис уходили
-  // напрямую в socket.io — процесс падал целиком (Node >= 15 дефолтно
-  // завершает процесс на unhandledRejection). Один кривой пейлоад от
-  // клиента (см. валидацию в каждом хендлере) не должен ронять сервер:
-  // ловим и синхронные throw, и async-отказы, отвечаем клиенту 'error'.
   const origOn = socket.on.bind(socket);
   socket.on = function(event, handler) {
     if (event === 'connect' || event === 'disconnect' || event === 'error') return origOn(event, handler);
@@ -254,37 +228,6 @@ io.on('connection', (socket) => {
     if (!p) return socket.emit('auth_error', 'Неверный токен');
     if (bannedIPs.has(socketIP)) { socket.emit('auth_error', 'Ваш IP заблокирован'); socket.disconnect(); return; }
 
-    // БАГ (исправлено): раньше между verifyToken() и этим блоком стоял
-    // "await getUser(...)" — а он обращается к кэшу/БД, то есть реально
-    // отдаёт управление event loop'у. Если у юзера открыто несколько
-    // вкладок (у каждой — свой socket от app.js И свой отдельный socket
-    // от header.js для DM) и он быстро перезагружает страницу, несколько
-    // auth-событий одного и того же юзера начинают выполняться
-    // параллельно, и их await'ы могли завершиться в ЛЮБОМ порядке. Из-за
-    // этого сокет, который должен был быть найден как "старый" и вытолкнут
-    // (oldSocket.disconnect), иногда проскакивал мимо этой проверки —
-    // потому что на момент его собственного запроса prevOldId ещё
-    // указывал на кого-то другого, кто сам уже был снят с учёта. Такой
-    // "потерянный" сокет оставался реально подключённым (просто не как
-    // текущая сессия юзера) до тех пор, пока не отваливался сам по
-    // ping-таймауту socket.io (~20-30 сек) — отсюда и временный, сам
-    // проходящий разнобой в счётчике онлайна.
-    // Фикс: всю регистрацию сессии (поиск+вытеснение старого сокета,
-    // запись в sessions/usernameToSocketId/onlineUsers) делаем СРАЗУ,
-    // одним синхронным куском без await между чтением токена и записью —
-    // гонки конкурирующих auth-вызовов для одного юзера больше нет.
-    // Проверку бана делаем уже ПОСЛЕ регистрации: если юзер забанен —
-    // просто отключаем этот (уже корректно зарегистрированный) сокет,
-    // и штатный disconnect-обработчик сам всё почистит.
-    // Multi-socket (БАГ исправлен): у страницы может быть несколько
-    // легитимных сокетов одного юзера — основной (app.js: игра/чат) и
-    // DM-сокет (header.js). Раньше каждый auth "выселял" предыдущий сокет
-    // (oldSocket.disconnect(true)), из-за чего два сокета одной страницы
-    // бесконечно пинг-понгили выселениями: таргетированные события
-    // (opponent_move, game_chat, dm_message...) уходили в "неправильный"
-    // сокет и молча терялись — это и есть issue #52 «Messages sometimes
-    // fail to send». Теперь юзер держит НАБОР сокетов (Set), все события
-    // через findSocketByUsername() доставляются каждому из них.
     const lower = p.username.toLowerCase();
     let ids = usernameToSocketId.get(lower);
     const isFirstSocket = !ids || ids.size === 0;
@@ -343,10 +286,6 @@ io.on('connection', (socket) => {
     const p = t.participants.find(p => p.username === socket.username);
     if (!p) return socket.emit('error', 'Вы не участвуете');
     if (p.currentGameId) return;
-    // Безопасность (issue M2): каждый вызов делал saveTournament (полный upsert
-    // всех участников) + emit в комнату + O(n²)-спаривание. При 100 событиях/сек
-    // на сокет это выливалось в сотни записей в БД в секунду от одного бота.
-    // 1) No-op защита: если игрок уже в очереди и не на паузе — делать нечего.
     if (p.waiting && !p.paused) return;
     // 2) Троттлинг: не чаще раза в секунду на сокет.
     const nowTs = Date.now();
@@ -394,7 +333,6 @@ io.on('connection', (socket) => {
     const p = t.participants.find(p => p.username === socket.username);
     if (!p || p.left || p.anticheatBanned || p.currentGameId) return;
     if (getTournamentStatus(t, Date.now()) !== 'active') return;
-    // Issue M2: те же защита от no-op и троттлинг, что в tournament_seek.
     if (p.waiting && !p.paused) return;
     const nowTs = Date.now();
     if (socket._lastSeekAt && nowTs - socket._lastSeekAt < 1000) return;
@@ -413,14 +351,10 @@ io.on('connection', (socket) => {
     if (!socket.username) return;
     const game = tournamentGames.get(gameId); if (!game) return;
     // Безопасность: берсерк может включить ТОЛЬКО участник партии и только
-    // за себя. Раньше любой сокет мог активировать берсерк за соперника.
     if (game.white !== socket.username && game.black !== socket.username) return;
     const color = game.white === socket.username ? 'white' : 'black';
     if (game.berserk[color] || game.moveCounts[color] > 0) return;
     game.berserk[color] = true;
-    // БАГ БЕЗОПАСНОСТИ (исправлен): раньше берсерк только ставил флаг — время
-    // не резалось вдвое и инкремент не обнулялся, но очко за берсерк начислялось.
-    // Бесплатные бонусные очки закрыты: делаем то, что берсерк и должен делать.
     if (color === 'white') {
       game.whiteTime = Math.floor((game.whiteTime || 0) / 2);
     } else {
@@ -433,20 +367,11 @@ io.on('connection', (socket) => {
   });
 
   // Формат контрольного времени «10+0», «3+2», «60+0s» (для пулов) —
-  // единая проверка для вызовов. Раньше сюда попадало что угодно
-  // (например, число 123), а позже challenge.timeControl.split('+') в
-  // startGame падал с TypeError внутри setTimeout — процесс падал целиком.
-  // Допускаем секундную базу «15s+0» (кнопка «15 сек») и старый вид «60+0s».
   const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?s?\+\d{1,2}s?$/;
 
   socket.on('post_challenge', (data) => {
     if (!socket.username) return;
     if (typeof data !== 'object' || data === null) return;
-    // Безопасность (issue M1): каждый вызов post_challenge/cancel_challenge
-    // делал io.emit(...) ВСЕМ клиентам. socketLimiter разрешает 100 событий/сек
-    // на сокет — один бот мог заставить сервер разослать сотни бродкастов
-    // в секунду каждому подписчику (усиление DoS × N клиентов, вклад в #91).
-    // Теперь: не чаще 1 вызова в секунду на сокет.
     const nowTs = Date.now();
     if (socket._lastPostChallengeAt && nowTs - socket._lastPostChallengeAt < 1000) {
       return socket.emit('error', 'Слишком часто — подождите секунду');
@@ -464,8 +389,6 @@ io.on('connection', (socket) => {
 
   socket.on('cancel_challenge', () => {
     if (!socket.username) return;
-    // Issue M1: broadcast только если вызов реально существовал и был удалён —
-    // холостые cancel больше не рассылают обновления всем клиентам.
     const idx = pendingChallenges.findIndex(c => c.from === socket.username);
     if (idx === -1) return;
     pendingChallenges.splice(idx, 1);
@@ -490,8 +413,6 @@ io.on('connection', (socket) => {
 
   socket.on('challenge_user', (data) => {
     if (!socket.username) return;
-    // Анти-спам: не чаще одного личного вызова в 2 секунды (раньше жертву
-    // можно было заспамить сотнями попапов в секунду).
     const now = Date.now();
     if (socket._lastDirectChallengeAt && now - socket._lastDirectChallengeAt < 2000) {
       return socket.emit('error', 'Не так часто — подождите пару секунд');
@@ -508,10 +429,6 @@ io.on('connection', (socket) => {
     // Контроль времени личного вызова: берём выбранный в зале, иначе 10+0.
     const directTC = typeof data === 'object' && data && typeof data.timeControl === 'string' && TIME_CONTROL_RE.test(data.timeControl) ? data.timeControl : '10+0';
     socket._directTC = directTC;
-    // Безопасность (issue M3): рейтинговость вызова решает ВЫЗЫВАЮЩИЙ и только
-    // он — сохраняем флаг на его сокете. Раньше acceptor мог незаметно
-    // «переключить» рейтинговую партию в товарищескую (избежать потери
-    // рейтинга) или наоборот, т.к. флаг читался из его ответа.
     socket._directRated = rated;
     t.emit('incoming_challenge', { from: socket.username, socketId: socket.id, rated, timeControl: directTC });
   });
@@ -524,8 +441,6 @@ io.on('connection', (socket) => {
     if (!fromSocket) return socket.emit('error', 'Игрок отключился');
     // Берём контроль, который вызывающий сам указал (хранится на сервере, клиенту не доверяем).
     const directTC = typeof fromSocket._directTC === 'string' && TIME_CONTROL_RE.test(fromSocket._directTC) ? fromSocket._directTC : '10+0';
-    // Issue M3: рейтинговость — решение вызывающего (если его сокет известен и
-    // хранит флаг). Фолбэк на ответ принимающего сохранён для обратной совместимости.
     const effectiveRated = typeof fromSocket._directRated === 'boolean' ? fromSocket._directRated : rated;
     startGame(socket, { from: fromSocket.username, timeControl: directTC, color: 'random', rated: effectiveRated, socketId: fromSocketId });
   });
@@ -551,32 +466,15 @@ io.on('connection', (socket) => {
     if (!game) { socket.emit('error', 'Партия не найдена (возможно, уже завершилась)'); return; }
     if (typeof move !== 'object' || move === null || typeof move.from !== 'number' || typeof move.to !== 'number'
         || move.from < 0 || move.from > 63 || move.to < 0 || move.to > 63) {
-      // БАГ (исправлен): раньше невалидный пейлоад отбрасывался молча — клиент,
-      // уже применивший ход оптимистично, оставался рассинхронизированным навсегда.
-      // Теперь отвечаем move_rejected на любой отказ (issue #52).
       socket.emit('move_rejected', { gameId, reason: 'invalid' });
       return;
     }
-    // Безопасность (issue C3): promotion — вектор XSS. Раньше сюда попадала
-    // произвольная строка от клиента (например "</script><img ...>"), она
-    // сохранялась в истории ходов и без экранирования вставлялась в inline
-    // <script> страницы /game/:id. Допускаем только легальные фигуры преврашения.
     if (move.promotion != null && !['q', 'r', 'b', 'n'].includes(move.promotion)) {
       socket.emit('move_rejected', { gameId, reason: 'invalid' });
       return;
     }
     if (game.white !== socket.username && game.black !== socket.username) return;
     const pc = game.white === socket.username ? 'white' : 'black';
-    // БАГ (исправлено): раньше здесь был просто "return" без единого
-    // уведомления клиенту. Но клиент к этому моменту уже применил ход
-    // ЛОКАЛЬНО, оптимистично, ещё до ответа сервера (см. board.js:
-    // executeMove) — значит игрок видел, что сходил, а сервер это молча
-    // отбрасывал. Причина рассинхронизации turn — обычно короткий обрыв
-    // связи, из-за которого предыдущий ход/подтверждение потерялись.
-    // Теперь в такой ситуации шлём 'move_rejected' с полной актуальной
-    // историей ходов и временем — клиент по этому событию откатывает
-    // локальную доску и пересобирает её по реальному состоянию партии
-    // (см. app.js: socket.on('move_rejected', ...) и board.js:resyncFromServer).
     if (game.turn !== pc) {
       socket.emit('move_rejected', {
         gameId, reason: 'not-your-turn',
@@ -646,23 +544,16 @@ io.on('connection', (socket) => {
     // Игрок должен быть участником этой партии, чтобы вообще заявлять об её завершении
     if (socket.username !== game.white && socket.username !== game.black) return;
 
-    // Безопасность (issue H4): reason — закрытый whitelist. Раньше любая
-    // неизвестная строка ("agreement", "xyz") проходила насквозь, и проигрывающий
-    // мог заявить победу своим результатом.
+    if (reason === 'timeout' || reason === 'flag') {
+      socket.emit('error', 'Таймаут определяется сервером');
+      return;
+    }
+
     const ALLOWED_REASONS = ['checkmate', 'stalemate', 'threefold-repetition', 'fifty-move', 'insufficient-material'];
     if (!ALLOWED_REASONS.includes(reason)) { socket.emit('error', 'Недопустимая причина завершения'); return; }
 
     const norm = result === 'w' ? 'white' : result === 'b' ? 'black' : result;
     if (norm !== 'white' && norm !== 'black' && norm !== 'draw') return;
-
-    // ── Таймаут больше не принимается от клиента — это решает только
-    // серверный интервал (endGameAuthoritative выше), который знает
-    // реальное оставшееся время по game.lastMoveAt. Клиентские часы
-    // (clockInterval и т.п.) не могут завершить партию по флагу.
-    if (reason === 'timeout' || reason === 'flag') {
-      socket.emit('error', 'Таймаут определяется сервером');
-      return;
-    }
 
     // ── Мат/пат — проверяем по реальной позиции на сервере, а не
     // просто принимаем то, что прислал клиент.
@@ -681,9 +572,7 @@ io.on('connection', (socket) => {
 
     // ── Ничьи по правилам (50 ходов / недостаток материала / троекратное
     // повторение позиции) — тоже перепроверяем по истории ходов, а не
-    // просто верим клиенту. Раньше клиент такие заявки вообще не слал
-    // (см. исправление в board.js), из-за чего партия никогда не
-    // завершалась сама — время шло, а ходить было некуда.
+    // просто верим клиенту.
     if (reason === 'threefold-repetition' || reason === 'fifty-move' || reason === 'insufficient-material') {
       if (norm !== 'draw') { socket.emit('error', 'Некорректный результат ничьей'); return; }
       if (reason === 'threefold-repetition' && !serverChess.isThreefoldRepetition(game.moves)) {
@@ -701,11 +590,7 @@ io.on('connection', (socket) => {
     }
 
     // Удаляем сразу — чтобы второй клиент не мог вызвать game_over дважды на ту же игру.
-    // Accuracy (БАГ исправлен, issue H4): раньше сюда попадал произвольный клиентский
-    // объект без проверки, и он же кормил античит (3 партии с accuracy >= 95 — бан в
-    // турнире). Злоумышленник мог как поднять себе точность для «честного» вида, так и
-    // подставить соперника, прислав завышенную accuracy за него. Теперь принимаем
-    // только числа в диапазоне 0..100 и только по известным ключам.
+    // Accuracy: принимаем только числа в диапазоне 0..100 и только по известным ключам.
     if (accuracy && typeof accuracy === 'object') {
       const safe = {};
       for (const key of ['white', 'black']) {
@@ -718,11 +603,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('resign', async ({ gameId }) => {
-    // Безопасность (issue C1): раньше хендлер вообще не проверял ни аутентификацию,
-    // ни участие в партии. Любой подключённый сокет (даже без auth) мог сдуть
-    // ЛЮБУЮ активную партию по её id (id видны в истории/турнирной сетке), и для
-    // постороннего rc всегда был 'black' — победа белых. Это давало массовый
-    // саботаж турниров и накрутку/слив рейтинга.
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
@@ -738,12 +618,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('offer_draw', ({ gameId }) => {
-    // Безопасность (issue C2): предложение ничьей — только участник партии.
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
-    // Анти-спам (issue M1): не чаще одного предложения в 2 секунды — иначе
-    // соперника можно заспамить сотнями попапов ничьей в секунду.
     const nowD = Date.now();
     if (socket._lastDrawOfferAt && nowD - socket._lastDrawOfferAt < 2000) {
       return socket.emit('error', 'Не так часто — подождите пару секунд');
@@ -754,9 +631,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('accept_draw', async ({ gameId }) => {
-    // Безопасность (issue C2): принять ничью может ТОЛЬКО участник партии.
-    // Раньше любой сокет мог форсировать ничью в любой активной игре —
-    // например, в момент финиша лишить соперника заслуженной победы.
     if (!socket.username) return;
     const game = activeGames.get(gameId); if (!game) return;
     if (game.white !== socket.username && game.black !== socket.username) return;
@@ -766,9 +640,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('game_chat', ({ gameId, message }) => {
-    // Безопасность + issue #52: раньше хендлер не проверял ни аутентификацию
-    // (посторонний мог писать в чат чужой партии, от имени from: undefined),
-    // ни участие, и молча ронял сообщения после конца партии.
     if (!socket.username) return socket.emit('error', 'Сначала войдите в аккаунт');
     const game = activeGames.get(gameId);
     if (!game) return socket.emit('error', 'Партия не найдена (чат недоступен)');
@@ -795,14 +666,6 @@ io.on('connection', (socket) => {
 
 // ── Фильтр глобального чата ─────────────────────────────────────
 // Та же логика, что уже используется на клиенте (app.js:containsBadWords).
-// БАГ (исправлено): раньше здесь был отдельный, свой, куда более грубый
-// фильтр — плоский .includes() без учёта границ слова. Из-за этого
-// "рубля" (и любое другое слово, просто ЗАКАНЧИВАющееся на "бля") ловилось
-// как мат — а последствие было не просто "сообщение не отправлено", а
-// chatHardBan(): ПОЖИЗНЕННЫЙ бан аккаунта и устройства с удалением
-// истории сообщений. Заодно убрал токсичные-но-не-матерные слова
-// ("дебил","идиот","мразь","тварь","урод","чмошник") — это не мат, их
-// уже убрали из клиентского списка по этой же причине (см. app.js).
 const MAT_WORDS_CHAT = [
   'блять','блядь','бля','пиздец','пизда','пизду','пизды',
   'сука','сучка','хуй','хуе','хер',
@@ -856,8 +719,6 @@ function chatMessageHasBadWords(text) {
     const now = Date.now();
 
     // ── Анти-спам-счётчики проверяем СИНХРОННО и ДО await getUser.
-    // Раньше они стояли после await — два быстрых сообщения интерливились
-    // (оба проходили await до обновления счётчиков) и обходили троттлинг.
     if (!socket._chatMsgs) socket._chatMsgs = [];
     socket._chatMsgs = socket._chatMsgs.filter(t => now - t < 10000); socket._chatMsgs.push(now);
     if (socket._chatMsgs.length > 10) { socket.emit('error', 'Вы временно отключены за спам в чате'); socket.disconnect(); return; }
@@ -908,13 +769,6 @@ function chatMessageHasBadWords(text) {
 
     const msg = { id: uuidv4(), username: socket.username, message: text, role: user?.role === 'admin' ? 'admin' : 'user', timestamp: now, emoji: user.emoji || '', vip: isVip(user) };
 
-    // ── Теневой бан: сообщение сохраняем как обычно (для админ-аудита
-    // и истории), но реальным адресатам оно не уходит вообще — рассылаем
-    // только самому автору (чтобы у него всё выглядело как обычная
-    // успешная отправка) и админам (чтобы можно было проверить, что он
-    // пишет). Остальные получатели никогда не увидят это сообщение —
-    // ни в реальном времени, ни при следующей загрузке истории (см.
-    // фильтр по msg.shadowHidden в GET /api/chat).
     if (user.shadowBanned) {
       msg.shadowHidden = true;
       globalChat.push(msg); if (globalChat.length > 500) globalChat.shift();
@@ -957,14 +811,6 @@ function chatMessageHasBadWords(text) {
         io.emit('online_count', onlineUsers.size);
         for (const t of tournaments) {
         const p = t.participants.find(p => p.username === sess.username);
-        // БАГ: тут игрока молча вынимало из очереди поиска (waiting=false) при
-        // любом обрыве соединения (сеть моргнула, телефон заблокировался,
-        // сворачивание вкладки) — без paused=true и без broadcast. При
-        // реконнекте auth-хендлер проверял "myPart.waiting && !myPart.paused",
-        // но waiting уже был false, поэтому поиск соперника сам НЕ возобновлялся,
-        // и игрок застревал на экране "пауза", хотя сам её не ставил.
-        // Запоминаем, что человека нужно вернуть в очередь при следующем auth,
-        // если он именно ждал соперника, а не поставил паузу сам.
         if (p && p.waiting && !p.left && !p.anticheatBanned && !p.currentGameId) {
           p._resumeOnReconnect = true;
         }

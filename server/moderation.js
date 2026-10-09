@@ -62,25 +62,6 @@ const KIND_LABELS = {
 
 
 // ═══════════════════════════════════════════════════════════════
-//  Таблица флагов автомодерации (не зависит от других таблиц —
-//  можно создавать прямо при загрузке модуля)
-// ═══════════════════════════════════════════════════════════════
-db(`CREATE TABLE IF NOT EXISTS automod_flags (
-  id           TEXT PRIMARY KEY,
-  username     TEXT NOT NULL,
-  username_low TEXT NOT NULL,
-  kind         TEXT NOT NULL,
-  details      TEXT,
-  status       TEXT NOT NULL DEFAULT 'new',
-  created_at   BIGINT NOT NULL,
-  updated_at   BIGINT NOT NULL,
-  resolved_by  TEXT,
-  resolved_at  BIGINT
-)`).then(() => db(`CREATE INDEX IF NOT EXISTS idx_automod_status ON automod_flags(status, created_at DESC)`))
-   .catch(e => console.error('[Moderation] automod_flags init:', e.message));
-
-
-// ═══════════════════════════════════════════════════════════════
 //  Кэш «кого прятать» (забаненные / теневые / бан комментариев дневника)
 //  Обновляется раз в 15 секунд и сразу — при бане через админку.
 // ═══════════════════════════════════════════════════════════════

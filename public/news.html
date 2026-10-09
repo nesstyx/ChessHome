@@ -506,7 +506,6 @@ function getDevId() {
 }
 const DEVID = getDevId();
 
-function esc(s) { return escapeHtml(s); }
 function formatDate(ts) { return new Date(ts).toLocaleDateString((window.CH_I18N && CH_I18N.getLang && CH_I18N.getLang() === 'en') ? 'en-US' : 'ru-RU',{day:'numeric',month:'long',year:'numeric'}); }
 function mdRender(text) {
   if (!text) return '';
@@ -522,7 +521,7 @@ function toast(msg, type='info') {
   const c = document.getElementById('toast-container');
   const el = document.createElement('div');
   el.className = 'toast ' + type;
-  el.innerHTML = `<span>${{success:'✓',error:'✗',info:'ℹ'}[type]||'ℹ'}</span><span>${esc(msg)}</span>`;
+  el.innerHTML = `<span>${{success:'✓',error:'✗',info:'ℹ'}[type]||'ℹ'}</span><span>${escapeHtml(msg)}</span>`;
   c.appendChild(el);
   setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(30px)'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); }, 3500);
 }
@@ -614,9 +613,9 @@ function renderAuthorsModal() {
   } else {
     el.innerHTML = newsAuthors.map(a => `
       <div class="author-row">
-        <div class="a-av">${esc(a[0]||'?').toUpperCase()}</div>
-        <span class="a-name">${esc(a)}</span>
-        <button class="btn btn-danger btn-sm" onclick="removeAuthor('${esc(a)}')">Снять</button>
+        <div class="a-av">${escapeHtml(a[0]||'?').toUpperCase()}</div>
+        <span class="a-name">${escapeHtml(a)}</span>
+        <button class="btn btn-danger btn-sm" onclick="removeAuthor('${escapeHtml(a)}')">Снять</button>
       </div>`).join('');
   }
 }
@@ -663,7 +662,7 @@ async function loadPosts() {
     const res = await apiGet(url);
     allPosts = Array.isArray(res) ? res : (res.posts || []);
   } catch(e) {
-    document.getElementById('news-list').innerHTML = `<div class="news-empty"><div class="ei">⚠️</div><p>${esc(e.message)}</p></div>`;
+    document.getElementById('news-list').innerHTML = `<div class="news-empty"><div class="ei">⚠️</div><p>${escapeHtml(e.message)}</p></div>`;
     return;
   }
   renderList();
@@ -688,8 +687,8 @@ function renderList() {
       card.innerHTML = `
         <div class="news-card-body">
           <span class="draft-badge">${T('news.hidden_badge')}</span>
-          <div class="news-card-title">${esc(p.title)}</div>
-          ${excerpt ? `<div class="news-card-excerpt">${esc(excerpt)}${(p.body||'').length>220?'…':''}</div>` : ''}
+          <div class="news-card-title">${escapeHtml(p.title)}</div>
+          ${excerpt ? `<div class="news-card-excerpt">${escapeHtml(excerpt)}${(p.body||'').length>220?'…':''}</div>` : ''}
           <div class="news-card-meta"><span class="stat">📅 ${formatDate(p.createdAt)}</span></div>
           <div class="vp-actions" style="margin-top:10px;padding-top:0;border-top:none">
             <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();restoreHiddenPost('${p.id}')">${T('news.restore_btn')}</button>
@@ -700,13 +699,13 @@ function renderList() {
       return;
     }
     card.innerHTML = `
-      ${p.cover ? `<div class="news-card-cover" style="background-image:url('${esc(p.cover)}')"></div>` : ''}
+      ${p.cover ? `<div class="news-card-cover" style="background-image:url('${escapeHtml(p.cover)}')"></div>` : ''}
       <div class="news-card-body">
         ${p.status==='draft' ? '<span class="draft-badge">' + T('news.draft_badge') + '</span>' : ''}
-        <div class="news-card-title">${esc(p.title)}</div>
-        ${excerpt ? `<div class="news-card-excerpt">${esc(excerpt)}${(p.body||'').length>220?'…':''}</div>` : ''}
+        <div class="news-card-title">${escapeHtml(p.title)}</div>
+        ${excerpt ? `<div class="news-card-excerpt">${escapeHtml(excerpt)}${(p.body||'').length>220?'…':''}</div>` : ''}
         <div class="news-card-meta">
-          <span class="stat">✍️ ${esc(p.author)}</span>
+          <span class="stat">✍️ ${escapeHtml(p.author)}</span>
           <span class="stat">📅 ${formatDate(p.createdAt)}</span>
           <span class="stat">👁 ${p.views||0}</span>
           <span class="stat">👍 ${p.likes||0}</span>
@@ -1032,7 +1031,7 @@ async function loadComments() {
     const label = document.getElementById('cmt-count-label');
     label.textContent = cmtData.length === 0 ? T('news.no_comments_yet') : TN('news.comment_count', cmtData.length);
   } catch(e) {
-    listEl.innerHTML = `<div class="cmt-empty"><div class="ei">⚠️</div><p>${esc(e.message)}</p></div>`;
+    listEl.innerHTML = `<div class="cmt-empty"><div class="ei">⚠️</div><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -1094,15 +1093,15 @@ function buildCommentEl(c) {
 
   wrap.innerHTML = `
     <div class="cmt-item-head">
-      <div class="cmt-av">${esc(c.author[0]||'?').toUpperCase()}</div>
-      <span class="cmt-author${authorIsOwner?' is-owner':''}${authorIsWriter?' is-writer':''}">${esc(c.author)}${authorIsOwner?' <span class="cmt-owner-badge">ВЛАДЕЛЕЦ</span>':''}${authorIsWriter?' <span class="cmt-writer-badge">АВТОР</span>':''}</span>
+      <div class="cmt-av">${escapeHtml(c.author[0]||'?').toUpperCase()}</div>
+      <span class="cmt-author${authorIsOwner?' is-owner':''}${authorIsWriter?' is-writer':''}">${escapeHtml(c.author)}${authorIsOwner?' <span class="cmt-owner-badge">ВЛАДЕЛЕЦ</span>':''}${authorIsWriter?' <span class="cmt-writer-badge">АВТОР</span>':''}</span>
       <span class="cmt-date">${formatDate(c.createdAt)}</span>
     </div>
     ${bodyHtml}
     <div class="cmt-item-actions">${modBtns}</div>
     ${isOwner() && !c.deleted && !isMe ? `
     <div class="cmt-mod-panel" id="modpanel-${c.id}">
-      <div class="cmt-mod-panel-title">🛡 Модерация — ${esc(c.author)}</div>
+      <div class="cmt-mod-panel-title">🛡 Модерация — ${escapeHtml(c.author)}</div>
       <div class="cmt-mod-actions">
         <button class="cmt-mod-action" onclick="modAction('mute','${c.author}')">🔇 Мут на 1ч</button>
         <button class="cmt-mod-action" onclick="modAction('unmute','${c.author}')" style="color:var(--green);border-color:rgba(76,175,114,.35)">✅ Снять мут</button>

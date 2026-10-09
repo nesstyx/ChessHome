@@ -103,8 +103,8 @@
   function applyTranslations(root) {
     root = root || document;
 
-    root.querySelectorAll('[data-i18n]').forEach(el => {
-      const key = el.getAttribute('data-i18n');
+    root.querySelectorAll('[data-i18n], [data-i18n-html]').forEach(el => {
+      const key = el.getAttribute('data-i18n') || el.getAttribute('data-i18n-html');
       const val = t(key);
       if (el.hasAttribute('data-i18n-html')) el.innerHTML = val;
       else el.textContent = val;

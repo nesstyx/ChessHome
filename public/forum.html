@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="forum.page_title">Forum — Chess Home</title>
@@ -260,33 +261,13 @@ a{color:inherit;text-decoration:none}
     </div>
     <div id="tv-auth-req" style="display:none;text-align:center;padding:32px 0;color:var(--text3)">
       <div style="font-size:36px;margin-bottom:10px">🔒</div>
-      <p data-i18n-html="forum.auth_required_html">To reply, you need to <a href="#" style="color:var(--accent)" onclick="openModal('modal-login');return false">sign in</a></p>
+      <p data-i18n-html="forum.auth_required_html">To reply, you need to <a href="#" style="color:var(--accent)" onclick="CH.openAuthModal('login');return false">sign in</a></p>
     </div>
   </div>
 </div>
 
-<!-- Modal Login -->
-<div class="modal-overlay" id="modal-login">
-  <div class="modal">
-    <button class="modal-close" onclick="closeModal('modal-login')">✕</button>
-    <h2 data-i18n="forum.login_modal_title">♚ Sign in</h2>
-    <form onsubmit="handleLogin(event)">
-      <div class="form-group">
-        <label class="form-label" data-i18n="forum.username_label">Username</label>
-        <input class="form-input" id="login-username" data-i18n-placeholder="forum.username_placeholder" placeholder="Your nickname" autocomplete="username">
-      </div>
-      <div class="form-group">
-        <label class="form-label" data-i18n="forum.password_label">Password</label>
-        <input class="form-input" id="login-password" type="password" data-i18n-placeholder="forum.password_placeholder" placeholder="Password" autocomplete="current-password">
-      </div>
-      <div class="form-error" id="login-error"></div>
-      <div class="form-actions">
-        <button type="button" class="btn btn-ghost" data-i18n="forum.no_account_btn" onclick="closeModal('modal-login');window.location='/?register=1'">No account?</button>
-        <button type="submit" class="btn btn-primary" data-i18n="header.login">Sign in</button>
-      </div>
-    </form>
-  </div>
-</div>
+<!-- Модалка авторизации локально НЕ объявляется: CH.openAuthModal('login')
+     из /js/header.js ведёт на каноничную форму входа на главной (DRY). -->
 
 <!-- Modal Search -->
 <div class="modal-overlay" id="modal-reply-search">
@@ -300,7 +281,6 @@ a{color:inherit;text-decoration:none}
   </div>
 </div>
 
-<div id="toast-container"></div>
 
 <script>
 'use strict';
@@ -331,7 +311,6 @@ let currentReplyPage = 1;
 function getDeviceId(){let id=localStorage.getItem('ch_device_id');if(!id){id='dev_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);localStorage.setItem('ch_device_id',id);}return id;}
 const DEVICE_ID=getDeviceId();
 
-function esc(s) { return escapeHtml(s); }
 
 function timeAgo(ts){
   if(!ts)return'';
@@ -355,7 +334,7 @@ function mdRender(text){
       });
     }
   }catch(e){}
-  return'<p>'+esc(text).replace(/\n/g,'<br>')+'</p>';
+  return'<p>'+escapeHtml(text).replace(/\n/g,'<br>')+'</p>';
 }
 
 async function apiGet(path){
@@ -389,13 +368,7 @@ async function apiDelete(path){
   return data;
 }
 
-function toast(msg,type='info'){
-  const el=document.createElement('div');
-  el.className='toast '+type;
-  el.innerHTML='<span>'+({success:'✓',error:'✗',info:'ℹ'}[type]||'ℹ')+'</span><span>'+esc(msg)+'</span>';
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(()=>{el.style.opacity='0';el.style.transform='translateX(30px)';el.style.transition='.3s';setTimeout(()=>el.remove(),300);},3500);
-}
+// toast() — глобальная, из /js/toast.js
 
 function openModal(id){const m=document.getElementById(id);if(m){m.style.display='flex';requestAnimationFrame(()=>m.classList.add('open'));}}
 function closeModal(id){const m=document.getElementById(id);if(m){m.classList.remove('open');setTimeout(()=>{if(!m.classList.contains('open'))m.style.display='none';},300);}}
@@ -413,23 +386,7 @@ function updateAuthUI(){
   CH.setActivePage('forum');
 }
 
-async function handleLogin(e){
-  e.preventDefault();
-  const un=document.getElementById('login-username').value.trim();
-  const pw=document.getElementById('login-password').value;
-  const errEl=document.getElementById('login-error');
-  errEl.textContent='';
-  try{
-    const data=await apiPost('/login',{username:un,password:pw});
-    // Токен приходит в HttpOnly-cookie, сервер выставляет её сам.
-    currentUser=data.user;
-    closeModal('modal-login');updateAuthUI();
-    toast(CH_I18N.t('forum.toast.welcome',{username:un}),'success');
-    renderView();
-  }catch(er){errEl.textContent=er.message;}
-}
-
-async function fetchOnline(){}
+// Локальная форма входа/handleLogin УДАЛЕНЫ (DRY): вход через CH.openAuthModal('login').
 
 // ── EDITOR ──────────────────────────────────────────────────
 const _editors={};
@@ -567,7 +524,7 @@ async function loadList(page){
     const data=await apiGet('/forum/threads?page='+page+'&limit='+PER_PAGE);
     renderList(data);
   }catch(e){
-    wrap.innerHTML='<div class="forum-empty"><div class="ei">⚠️</div><p>'+esc(e.message)+'</p></div>';
+    wrap.innerHTML='<div class="forum-empty"><div class="ei">⚠️</div><p>'+escapeHtml(e.message)+'</p></div>';
   }
 }
 
@@ -584,9 +541,9 @@ function renderList(data){
     const card=document.createElement('div');card.className='thread-card';
     const excerpt=t.body.replace(/[#*`>_~\[\]()!|]/g,'').slice(0,150);
     card.innerHTML=
-      '<div class="tc-title">'+esc(t.title)+'</div>'
-      +'<div class="tc-excerpt">'+esc(excerpt)+'</div>'
-      +'<div class="tc-meta">'+CH_I18N.t('forum.author_label')+'&nbsp;<span class="au" data-u="'+esc(t.author)+'">'+esc(t.author)+'</span>'
+      '<div class="tc-title">'+escapeHtml(t.title)+'</div>'
+      +'<div class="tc-excerpt">'+escapeHtml(excerpt)+'</div>'
+      +'<div class="tc-meta">'+CH_I18N.t('forum.author_label')+'&nbsp;<span class="au" data-u="'+escapeHtml(t.author)+'">'+escapeHtml(t.author)+'</span>'
         +' <span>·</span> '+timeAgo(t.createdAt)
         +(t.replyCount?' <span>·</span> '+CH_I18N.t('forum.last_reply_label')+' '+timeAgo(t.lastActivityAt):'')
       +'</div>'
@@ -643,14 +600,14 @@ async function showThread(slug, page){
     document.title=data.thread.title+' — '+CH_I18N.t('forum.page_title');
   }catch(e){
     document.getElementById('tv-title').textContent=CH_I18N.t('common.error');
-    document.getElementById('tv-op').innerHTML='<div class="forum-empty"><div class="ei">⚠️</div><p>'+esc(e.message)+'</p></div>';
+    document.getElementById('tv-op').innerHTML='<div class="forum-empty"><div class="ei">⚠️</div><p>'+escapeHtml(e.message)+'</p></div>';
   }
 }
 
 function renderThread(thread, replies, replyMeta){
   document.getElementById('tv-title').textContent=thread.title;
   const canDel=currentUser&&currentUser.role==='admin';
-  var meta=CH_I18N.t('forum.author_label')+' <span class="au" onclick="window.location=\'/profile/'+esc(thread.author)+'\'">'+esc(thread.author)+'</span>'
+  var meta=CH_I18N.t('forum.author_label')+' <span class="au" onclick="window.location=\'/profile/'+escapeHtml(thread.author)+'\'">'+escapeHtml(thread.author)+'</span>'
     +' <span>·</span> '+timeAgo(thread.createdAt)
     +' <span>·</span> '+(thread.views||0)+' '+CH_I18N.t('forum.views_label')
     +' <span>·</span> '+(thread.replyCount||0)+' '+CH_I18N.t('forum.replies_abbrev');
@@ -717,7 +674,6 @@ function changeReplyPage(slug, newPage){
 }
 
 function makePost(body,author,ts,isOp,replyId,canDel,num,reactions,myReaction){
-  // Реакции ответов форума (issue #45): панель эмодзи-тогглов под постом.
   var reactionsHtml = '';
   if (replyId) {
     const FORUM_EMOJIS = ['👍','👎','❤️','😂','😮','♟️'];
@@ -734,18 +690,16 @@ function makePost(body,author,ts,isOp,replyId,canDel,num,reactions,myReaction){
     reactionsHtml = '<div class="frx-row" id="frx-row-'+replyId+'" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:2px">'+chips+'</div>';
   }
   return '<div class="post-card'+(isOp?' op-post':'')+'"><div class="post-head">'
-    +'<div class="post-av" onclick="window.location=\'/profile/'+esc(author)+'\'">'+esc(author[0].toUpperCase())+'</div>'
-    +'<div><span class="post-name" onclick="window.location=\'/profile/'+esc(author)+'\'">'+esc(author)+'</span>'
+    +'<div class="post-av" onclick="window.location=\'/profile/'+escapeHtml(author)+'\'">'+escapeHtml(author[0].toUpperCase())+'</div>'
+    +'<div><span class="post-name" onclick="window.location=\'/profile/'+escapeHtml(author)+'\'">'+escapeHtml(author)+'</span>'
     +(isOp?'<span class="op-badge">OP</span>':(num?'<span class="num-badge">#'+num+'</span>':''))+'</div>'
     +'<span class="post-date">'+timeAgo(ts)+'</span>'
     +(canDel?'<button class="del-btn" type="button" onclick="delReply(\''+replyId+'\')">🗑</button>':'')
     +'</div><div class="post-body">'+mdRender(body)+'</div>'+reactionsHtml+'</div>';
 }
 
-// Toggle реакции на ответе форума (issue #45): сервер возвращает актуальную карту
-// реакций и мою реакцию — обновляем только строку этого ответа.
 async function toggleForumReaction(replyId, emoji) {
-  if (!currentUser) { openModal('modal-login'); return; }
+  if (!currentUser) { CH.openAuthModal('login'); return; }
   try {
     const res = await apiPost('/forum/replies/' + replyId + '/react', { emoji });
     const rowEl = document.getElementById('frx-row-' + replyId);
@@ -777,14 +731,14 @@ function backToList(){
 }
 
 function toggleNewThread(){
-  if(!currentUser){openModal('modal-login');return;}
+  if(!currentUser){CH.openAuthModal('login');return;}
   const p=document.getElementById('new-thread-panel');
   p.classList.toggle('open');
   if(p.classList.contains('open'))setTimeout(function(){p.scrollIntoView({behavior:'smooth',block:'start'});},50);
 }
 
 async function submitNewThread(){
-  if(!currentUser){openModal('modal-login');return;}
+  if(!currentUser){CH.openAuthModal('login');return;}
   const title=document.getElementById('nt-title').value.trim();
   const body=ntEditor?ntEditor.getValue().trim():'';
   const errEl=document.getElementById('nt-error');errEl.textContent='';
@@ -804,7 +758,7 @@ async function submitNewThread(){
 }
 
 async function submitReply(){
-  if(!currentUser){openModal('modal-login');return;}
+  if(!currentUser){CH.openAuthModal('login');return;}
   if(!currentThreadId)return;
   const body=replyEditor?replyEditor.getValue().trim():'';
   const errEl=document.getElementById('reply-error');errEl.textContent='';
@@ -872,9 +826,9 @@ async function performReplySearch(q) {
     data.results.forEach(res => {
       html += `<div class="search-result" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="goToReplyPage('${res.page}', '${res.id}')">
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">
-          <strong>${esc(res.author)}</strong> <span style="font-size:11px;color:var(--text3)">${CH_I18N.t('forum.search.page_label',{page:res.page})}</span>
+          <strong>${escapeHtml(res.author)}</strong> <span style="font-size:11px;color:var(--text3)">${CH_I18N.t('forum.search.page_label',{page:res.page})}</span>
         </div>
-        <div style="font-size:13px;color:var(--text2)">${esc(res.body)}</div>
+        <div style="font-size:13px;color:var(--text2)">${escapeHtml(res.body)}</div>
       </div>`;
     });
     resultsDiv.innerHTML = html;
@@ -902,8 +856,6 @@ document.addEventListener('DOMContentLoaded',async function(){
   CH.initHeader();
   try{await tryAutoLogin();}catch(e){console.warn(e);}
   updateAuthUI();
-  fetchOnline();
-  setInterval(fetchOnline,15000);
   renderView();
   window.addEventListener('popstate',renderView);
 });

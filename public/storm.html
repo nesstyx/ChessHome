@@ -794,8 +794,6 @@
     }
 
     try {
-      // Безопасность (issue C1): задачи привязаны к забегу, решения НЕ выдаются —
-      // каждый ход проверяет POST /api/storm/move.
       const data = await apiFetch(`/api/storm/puzzles?topics=mate1,mate2&runId=${encodeURIComponent(storm.runId || '')}`);
       if (!data || !data.length) { alert('Не удалось загрузить задачи'); showScreen('landing'); return; }
       storm.puzzles = data;
@@ -889,9 +887,6 @@
     const fenSide = fenTurn(puz.fen);
     storm.flipped = fenSide === 'w'; // за чёрных — переворачиваем
 
-    // Безопасность (issue C1): решение задачи больше НЕ приходит с сервера —
-    // каждый ход проверяет POST /api/storm/move. Для подписи «Мат в 1/2 хода»
-    // сервер присылает поле movesCount.
     storm.moveStep   = 0;
     storm.selected   = null;
     storm.autoPlaying= false;
@@ -1152,7 +1147,6 @@
     document.body.appendChild(overlay);
   }
 
-  // Безопасность (issue C1): правильность хода подтверждает сервер.
   async function checkMove(from, to, uci) {
     if (!storm.currentPuzzle || !storm.running || storm.checking) return;
     if (!storm.runId) return;
@@ -1295,7 +1289,7 @@
             ${i<3?medals[i]:i+1}
           </div>
           <div class="storm-lb-name">
-            <div class="storm-lb-username">${esc(u.username)}</div>
+            <div class="storm-lb-username">${escapeHtml(u.username)}</div>
             <div class="storm-lb-runs">${u.runs} ${u.runs===1?'игра':'игр'}</div>
           </div>
           <div class="storm-lb-score">
@@ -1319,13 +1313,13 @@
         const d = await apiFetch(`/api/storm/player/${encodeURIComponent(val.trim())}`);
         res.style.display = 'block';
         if (!d || d.error) {
-          res.innerHTML = `<div style="color:var(--text-muted,#888);font-size:14px">Игрок <b>${esc(val.trim())}</b> не найден или ни разу не играл в Шторм</div>`;
+          res.innerHTML = `<div style="color:var(--text-muted,#888);font-size:14px">Игрок <b>${escapeHtml(val.trim())}</b> не найден или ни разу не играл в Шторм</div>`;
           return;
         }
         res.innerHTML = `
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <div>
-              <div style="font-weight:800;font-size:16px">${esc(d.username)}</div>
+              <div style="font-weight:800;font-size:16px">${escapeHtml(d.username)}</div>
               <div style="font-size:12px;color:var(--text-muted,#888);margin-top:2px">
                 ${d.runs>0?`Сыграл ${d.runs} раз`:'Ещё не играл в Шторм'}
               </div>
@@ -1353,7 +1347,6 @@
 
   // ── Utils ──────────────────────────────────────────────────
   function setText(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
-  function esc(s) { return escapeHtml(s); }
 
   // ── Init ───────────────────────────────────────────────────
   window.addEventListener('DOMContentLoaded', () => {
