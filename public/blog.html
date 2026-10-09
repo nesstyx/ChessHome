@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="blog.page_title">Блог — Chess Home</title>
@@ -611,7 +612,6 @@ a{color:inherit;text-decoration:none}
   </div>
 
 </div>
-<div id="toast-container"></div>
 
 <script>
 const API = '/api';
@@ -630,7 +630,6 @@ function getDevId() {
 }
 const DEVID = getDevId();
 
-function esc(s) { return escapeHtml(s); }
 function formatDate(ts) {
   const locale = CH_I18N.getLang() === 'ru' ? 'ru-RU' : 'en-US';
   return new Date(ts).toLocaleDateString(locale,{day:'numeric',month:'long',year:'numeric'});
@@ -642,14 +641,7 @@ function mdRender(text) {
 function isAdmin() { return currentUser && (currentUser.role==='admin' || currentUser.username.toLowerCase()==='chesshome'); }
 function isLoggedIn() { return !!currentUser; }
 
-function toast(msg, type='info') {
-  const c = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.innerHTML = `<span>${{success:'✓',error:'✗',info:'ℹ'}[type]||'ℹ'}</span><span>${esc(msg)}</span>`;
-  c.appendChild(el);
-  setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(30px)'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); }, 3500);
-}
+// toast() — глобальная, из /js/toast.js
 
 function getHdrs(withCT=true) {
   // Authorization больше не нужен — токен в HttpOnly-cookie, браузер
@@ -694,10 +686,6 @@ async function apiPatch(path, body) {
   const r = await fetch(API+path, {method:'PATCH', headers:getHdrs(), credentials: 'same-origin', body:JSON.stringify(body)});
   return parseApiResponse(r);
 }
-// Раньше здесь был fetch(..., {method:'DELETE'}) — на части хостингов/прокси
-// метод DELETE до сервера не доходит и в ответ прилетает HTML-страница
-// ошибки вместо JSON (отсюда "JSON.parse: unexpected character..."). Поэтому
-// удаление теперь всегда идёт через POST на /.../delete.
 async function apiDelete(path) {
   const r = await fetch(API+path+'/delete', {method:'POST', headers:getHdrs(), credentials: 'same-origin', body: '{}'});
   return parseApiResponse(r);
@@ -720,7 +708,7 @@ function buildHeader() {
   const btn = document.createElement('button'); btn.className='user-btn';
   btn.onclick = () => document.getElementById('hdr-drop')?.classList.toggle('open');
   btn.innerHTML = `<div class="player-av" style="width:28px;height:28px;font-size:13px">${currentUser.username[0].toUpperCase()}</div>
-    <span style="font-size:14px;font-weight:600">${esc(currentUser.username)}</span>
+    <span style="font-size:14px;font-weight:600">${escapeHtml(currentUser.username)}</span>
     <span class="rating-pill">${currentUser.rating}</span>
     ${isAdmin()?'<span style="color:var(--accent);font-size:11px;font-weight:700;margin-left:4px">ADMIN</span>':''}
     <span style="color:var(--text2);font-size:12px;margin-left:2px">▾</span>`;
@@ -832,14 +820,13 @@ async function loadPosts() {
     if (currentFilter === 'drafts') url += '&status=drafts';
     if (currentFilter === 'hidden') url += '&status=hidden';
     if (currentFilter === 'published') url += `&sort=${currentSort}`;
-    // Поиск по блогам (issue #51)
     const searchInput = document.getElementById('blog-search-input');
     const q = (searchInput?.value || '').trim();
     if (q.length >= 2) url += '&q=' + encodeURIComponent(q);
     const res = await apiGet(url);
     allPosts = Array.isArray(res) ? res : (res.posts || []);
   } catch(e) {
-    document.getElementById('blog-list').innerHTML = `<div class="blog-empty"><div class="ei">⚠️</div><p>${esc(e.message)}</p></div>`;
+    document.getElementById('blog-list').innerHTML = `<div class="blog-empty"><div class="ei">⚠️</div><p>${escapeHtml(e.message)}</p></div>`;
     return;
   }
   renderList();
@@ -877,9 +864,9 @@ function renderList() {
       // сразу кнопки восстановить/удалить без клика на открытие.
       card.innerHTML = `
         <span class="draft-badge">${CH_I18N.t('blog.badge_hidden')}</span>
-        ${p.community ? '<span class="community-badge">✍️ '+esc(p.author)+'</span>' : ''}
-        <div class="blog-card-title">${esc(p.title)}</div>
-        ${excerpt ? `<div class="blog-card-excerpt">${esc(excerpt)}${(p.body||'').length>260?'…':''}</div>` : ''}
+        ${p.community ? '<span class="community-badge">✍️ '+escapeHtml(p.author)+'</span>' : ''}
+        <div class="blog-card-title">${escapeHtml(p.title)}</div>
+        ${excerpt ? `<div class="blog-card-excerpt">${escapeHtml(excerpt)}${(p.body||'').length>260?'…':''}</div>` : ''}
         <div class="blog-card-meta">
           <span class="stat">📅 ${formatDate(p.createdAt)}</span>
         </div>
@@ -892,9 +879,9 @@ function renderList() {
     }
     card.innerHTML = `
       ${p.status==='draft' ? `<span class="draft-badge">${CH_I18N.t('blog.draft_badge')}</span>` : ''}
-      ${p.community ? '<span class="community-badge">✍️ '+esc(p.author)+'</span>' : ''}
-      <div class="blog-card-title">${esc(p.title)}</div>
-      ${excerpt ? `<div class="blog-card-excerpt">${esc(excerpt)}${(p.body||'').length>260?'…':''}</div>` : ''}
+      ${p.community ? '<span class="community-badge">✍️ '+escapeHtml(p.author)+'</span>' : ''}
+      <div class="blog-card-title">${escapeHtml(p.title)}</div>
+      ${excerpt ? `<div class="blog-card-excerpt">${escapeHtml(excerpt)}${(p.body||'').length>260?'…':''}</div>` : ''}
       <div class="blog-card-meta">
         <span class="stat">📅 ${formatDate(p.createdAt)}</span>
         <span class="stat">👁 ${p.views||0}</span>
@@ -1203,7 +1190,7 @@ async function loadComments() {
     const vis = cmtData.filter(c=>!c.deleted).length;
     label.textContent = cmtData.length === 0 ? CH_I18N.t('blog.no_comments_yet') : CH_I18N.tn('blog.comment_count', cmtData.length);
   } catch(e) {
-    listEl.innerHTML = `<div class="cmt-empty"><div class="ei">⚠️</div><p>${esc(e.message)}</p></div>`;
+    listEl.innerHTML = `<div class="cmt-empty"><div class="ei">⚠️</div><p>${escapeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -1309,8 +1296,8 @@ function buildCommentEl(c) {
 
   wrap.innerHTML = `
     <div class="cmt-item-head">
-      <div class="cmt-av">${esc(c.author[0]||'?').toUpperCase()}</div>
-      <span class="cmt-author${authorIsAdmin?' is-admin':''}">${esc(c.author)}${authorIsAdmin?' <span class="cmt-admin-badge">ADMIN</span>':''}</span>
+      <div class="cmt-av">${escapeHtml(c.author[0]||'?').toUpperCase()}</div>
+      <span class="cmt-author${authorIsAdmin?' is-admin':''}">${escapeHtml(c.author)}${authorIsAdmin?' <span class="cmt-admin-badge">ADMIN</span>':''}</span>
       <span class="cmt-date">${formatDate(c.createdAt)}</span>
     </div>
     ${bodyHtml}
@@ -1320,7 +1307,7 @@ function buildCommentEl(c) {
     </div>
     ${isCAdmin && !c.deleted && !isMe ? `
     <div class="cmt-mod-panel" id="modpanel-${c.id}">
-      <div class="cmt-mod-panel-title">${CH_I18N.t('blog.mod_panel_title', {author: esc(c.author)})}</div>
+      <div class="cmt-mod-panel-title">${CH_I18N.t('blog.mod_panel_title', {author: escapeHtml(c.author)})}</div>
       <div class="cmt-mod-actions">
         <button class="cmt-mod-action" onclick="modAction('mute','${c.author}','${c.id}',false)">${CH_I18N.t('blog.mod.mute_post')}</button>
         <button class="cmt-mod-action" onclick="modAction('mute','${c.author}','${c.id}',true)">${CH_I18N.t('blog.mod.mute_global')}</button>
@@ -1374,10 +1361,6 @@ async function toggleReaction(cid, emoji) {
   const removing = c.myReaction === emoji;
   try {
     const res = await apiPost('/blog/'+cmtPostId+'/comments/'+cid+'/react', removing ? {} : {emoji});
-    // Баг #40 (исправлен): раньше здесь было c.reactions = res.reactions || {} —
-    // при снятии реакции сервер раньше не возвращал карту, и локально затирались
-    // ВСЕ чужие эмодзи до перезагрузки страницы. Теперь сервер всегда возвращает
-    // reactions, а клиент дополнительно защищён от затирания пустым ответом.
     if (res.reactions) c.reactions = res.reactions;
     c.myReaction = res.removed ? null : (res.myReaction || emoji);
     const rowEl = document.getElementById('react-row-'+cid);

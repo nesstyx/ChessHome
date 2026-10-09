@@ -477,7 +477,6 @@ async function loadStats() {
     const res = await fetch('/api/stats', { credentials: 'same-origin' });
     if (!res.ok) throw new Error(res.status);
     const D = await res.json();
-    // ВАЖНО: раньше переменная называлась T и затеняла i18n-хелпер T()
     const TOT = D.totals, M = D.misc, L = D.leaders, Ch = D.charts;
 
     // Дни

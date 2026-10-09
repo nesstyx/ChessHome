@@ -6,11 +6,6 @@ const StockfishAnalyzer = (() => {
   let sf = null;
   let isReady = false;
   let analyzing = false;
-  // Неиспользуемая currentCallback УДАЛЕНА (3.6).
-  // Домашний воркер (см. worker-client/) — сильнее и не грузит браузер
-  // посетителя. Пробуем его первым; если недоступен/все заняты — сервер
-  // сразу ответит analyze_unavailable, и просто продолжаем локально,
-  // как раньше. Ни один из путей не обязателен для работы другого.
   let usingRemote = false;
   let remoteFallbackTimer = null;
   let pendingRemote = null; // { fen, depth } — что запросили удалённо, на случай фолбэка
@@ -59,9 +54,6 @@ const StockfishAnalyzer = (() => {
       if (bestMove && bestMove !== '(none)') {
         document.getElementById('best-move-uci').textContent = formatUCIMove(bestMove);
       }
-      // AI-комментатор (issue #71): движок закончил считать позицию —
-      // сравниваем финальную оценку с предыдущей и, если позиция качнулась,
-      // выдаём весёлую фразу на странице анализа.
       if (lastParsed && typeof AICommentator !== 'undefined') {
         AICommentator.onBestMove(lastParsed.evalNum, lastParsed.mate);
         lastParsed = null;
@@ -108,8 +100,6 @@ const StockfishAnalyzer = (() => {
     const isBlackTurn = line.includes(' bm ') || checkBlackTurn();
     if (isBlackTurn) {
       evalNum = -evalNum;
-      // БАГ (исправлен): при ходе чёрных формат мата затирался числом
-      // ("-999.00" вместо "M-3"). Корректируем знак мата отдельно.
       if (scoreMate) {
         const m = Math.abs(parseInt(scoreMate));
         evalText = evalNum > 0 ? ('M' + m) : ('M-' + m);
@@ -153,7 +143,6 @@ const StockfishAnalyzer = (() => {
     // Сначала пробуем домашний воркер — если сокет подключён, шлём запрос
     // и ждём подтверждения. Если за 1.5с сервер не откликнулся (или сразу
     // прислал analyze_unavailable — воркеров нет/все заняты), уходим на
-    // локальный анализ в браузере, как было раньше.
     if (typeof socket !== 'undefined' && socket && socket.connected) {
       usingRemote = true;
       pendingRemote = { fen, depth };
@@ -241,10 +230,6 @@ function requestAnalysis() {
   StockfishAnalyzer.analyze(fen, 20);
 }
 
-// ══════════════════════════════════════════════════════════════
-//  AI-комментатор (issue #71): весёлые фразы по данным Stockfish.
-//  Реагирует на качели оценки между проанализированными позициями:
-//  грубые ошибки, переломы, маты — плюс нейтральные реплики.
 // ══════════════════════════════════════════════════════════════
 const AICommentator = (() => {
   let lastEval = null;      // последняя финальная оценка (перспектива белых)
@@ -340,5 +325,3 @@ function nextAiPhrase() {
 }
 
 // Инициализацию страницы анализа выполняет единственный хук pages['analysis']
-// в app.js (раньше здесь был дубль, который сбрасывал доску на стартовую
-// позицию и затирал позицию, переданную из редактора — issue #23).

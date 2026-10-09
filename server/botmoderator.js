@@ -73,7 +73,6 @@ const lastWarn = new Map();   // usernameLow -> ts последнего пред
 // ═══════════════════════════════════════════════════════════════
 //  Настройки (режим переживает перезапуск)
 // ═══════════════════════════════════════════════════════════════
-db(`CREATE TABLE IF NOT EXISTS bot_moderator_state (key TEXT PRIMARY KEY, value TEXT)`).catch(() => {});
 
 async function loadMode() {
   if (modeLoaded) return;
@@ -130,8 +129,6 @@ function whyTrusted(user) {
   return null;
 }
 
-// Персонал и бот: им предупреждения не шлём. Возраст аккаунта и партии для предупреждений значения не имеют:
-// предупреждение безобидно, поэтому его получают и «старые» игроки.
 function isStaff(user) {
   if (!user) return true;
   const low = user.username.toLowerCase();
@@ -166,15 +163,12 @@ async function chatBan24h(username, reason) {
   await logAdminAction(BOT_NAME, 'chat_ban', username, { durationMinutes: BOT.CHAT_BAN_MINUTES, reason, bot: true });
 }
 
-// Шаблон предупреждения по типу срабатывания
 const WARN_TEMPLATE = {
   dm_spam: 'spam', cross_post: 'spam', ad: 'spam', repeat: 'flood', flood: 'flood', links: 'links',
   forum_thread: 'content', forum_reply: 'content', blog_post: 'content',
   club: 'bad_name', tournament: 'bad_name', bio: 'bad_name',
 };
 
-// Предупреждение «от имени системы». Не чаще раза в WARN_COOLDOWN_MS на человека.
-// Возвращает { sent, why }.
 async function maybeWarn(user, { kind, score, reason }) {
   const low = user.username.toLowerCase();
   try {

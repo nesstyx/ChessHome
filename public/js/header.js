@@ -167,9 +167,6 @@
       const sock = window.io();
       _s.dmSocket = sock;
       // Токен теперь в HttpOnly-cookie: сервер сам читает JWT из cookie в
-      // заголовках handshake и игнорирует то, что мы шлём аргументом — раньше
-      // emit вообще не срабатывал, потому что гейтился по localStorage-токену,
-      // которого больше нет. Функция уже гарантирует наличие _s.currentUser выше.
       sock.on('connect', () => sock.emit('auth'));
       sock.on('dm_message', msg => {
         if (!msg || !_s.currentUser) return;
@@ -188,8 +185,6 @@
     return String(s || '').replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-  // Админ определяется по роли с сервера (users.role === 'admin', issue #27).
-  // ADMINS — только legacy-fallback для старых аккаунтов bootstrap.
   function isAdmin(u) { return !!u && (u.role === 'admin' || ADMINS.includes(u.username)); }
   // Значок VIP приходит с сервера уже посчитанным (u.vip) — сам гаснет через месяц,
   // здесь просто рисуем картинку, если он активен.
@@ -977,8 +972,6 @@
           </button>
         </div>
       </div>`;
-    // Строка JSX-мусора `{/* <a href="/settings.html" ... */}` УДАЛЕНА (3.4):
-    // в чистом JS это невалидный синтаксис, оставшийся от React-версии.
     document.getElementById('ch-user-btn').addEventListener('click', e => {
       e.stopPropagation();
       const drop = document.getElementById('ch-udrop');
@@ -1005,11 +998,6 @@
       CH.fetchOnlineCount();
 
       // Токен теперь в HttpOnly-cookie — восстанавливать юзера через
-      // localStorage.getItem('ch_token') больше не работает (там всегда
-      // пусто), из-за чего хедер везде показывал "Вход/Регистрация", даже
-      // если сессия была валидна. Теперь просто спрашиваем сервер напрямую:
-      // /api/me сам прочитает cookie. Если страница уже вызвала
-      // CH.setCurrentUser() раньше нас — не дёргаем /api/me лишний раз.
       if (!_s.currentUser) {
         fetch('/api/me', { credentials: 'same-origin' })
           .then(res => res.ok ? res.json() : null)
@@ -1019,7 +1007,7 @@
         CH.fetchUnreadCount();
         _connectDmSocket();
         if (!_s.unreadPollTimer) {
-          _s.unreadPollTimer = setInterval(CH.fetchUnreadCount, 7000);
+          _s.unreadPollTimer = setInterval(() => { if (!document.hidden) CH.fetchUnreadCount(); }, 7000);
         }
       }
       return CH;
@@ -1038,7 +1026,7 @@
         CH.fetchUnreadCount();
         _connectDmSocket();
         if (!_s.unreadPollTimer) {
-          _s.unreadPollTimer = setInterval(CH.fetchUnreadCount, 7000);
+          _s.unreadPollTimer = setInterval(() => { if (!document.hidden) CH.fetchUnreadCount(); }, 7000);
         }
       } else if (_s.unreadPollTimer) {
         clearInterval(_s.unreadPollTimer);
@@ -1172,15 +1160,19 @@
     },
 
     openAuthModal(mode = 'login') {
-      if (typeof window.openModal === 'function') openModal('modal-' + mode);
-      else if (typeof window.showPage === 'function') showPage('home');
-      else window.location = '/#' + mode;
+      // На странице может не быть своей модалки авторизации (profile/forum
+      // удалили локальные дубли — DRY). Открываем её, если она есть,
+      // иначе ведём на главную, где живёт каноничная форма.
+      const el = document.getElementById('modal-' + mode);
+      if (el) {
+        if (typeof window.openModal === 'function') { window.openModal('modal-' + mode); return; }
+        el.classList.add('open');
+        return;
+      }
+      window.location = '/#' + mode;
     },
 
     async logout() {
-      // Раньше здесь только чистили localStorage — но токен в HttpOnly-cookie,
-      // так что сессия на сервере оставалась активной, и пользователь по факту
-      // не выходил из аккаунта. Теперь явно просим сервер очистить cookie.
       try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
       localStorage.removeItem('ch_user');
       _s.currentUser = null;
@@ -1199,10 +1191,6 @@
   window.CH = CH;
 
   // ── Баннер обновления документов (4.5) ───────────────────────────────────
-  // Раньше разметка и скрипт баннера были скопированы слово в слово в
-  // index.html, privacy.html и terms.html. Теперь отображение инкапсулировано
-  // здесь: header.js подключён на всех страницах, баннер показывается один раз
-  // (до подтверждения в localStorage), текст — через i18n-ключи home.policy_banner_*.
   const POLICY_VERSION = 'v1.1-2025-06-12';
   window.dismissPolicyBanner = function () {
     try { localStorage.setItem('ch_policy_seen', POLICY_VERSION); } catch {}

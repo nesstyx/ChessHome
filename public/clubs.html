@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="clubs.page_title">Clubs — Chess Home</title>
@@ -610,7 +611,6 @@
   </div>
 </div>
 
-<div id="toast-container"></div>
 
 <script>
 const API = '/api';
@@ -622,14 +622,7 @@ let clubSocketAuthed = false;
 
 // ── Utils ──────────────────────────────────────────────────────
 // escapeHtml (P0, унификация): общая реализация в /js/utils.js
-function toast(msg, type='info') {
-  const c = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
-  c.appendChild(el);
-  setTimeout(() => el.remove(), 3500);
-}
+// toast() — глобальная, из /js/toast.js
 
 async function apiReq(method, path, body) {
   // Токен в HttpOnly-cookie — Authorization-заголовок из localStorage больше
@@ -1295,9 +1288,6 @@ function setupClubSocket(clubId) {
       clubSocket.on('connect', () => {
         // Сервер сам читает JWT из HttpOnly-cookie в handshake-заголовках и
         // игнорирует то, что мы передаём аргументом — так что аргумент можно
-        // не отправлять, но эмит нужен всегда (раньше он гейтился по
-        // localStorage-токену, которого теперь нет, и auth никогда не
-        // запускался). Смысл есть только если мы вообще залогинены.
         if (currentUser) clubSocket.emit('auth');
       });
       clubSocket.on('auth_ok', () => {
@@ -1408,7 +1398,6 @@ async function init() {
   await new Promise(res => CH_I18N.onReady(res));
   CH.initHeader();
   // Токен теперь в HttpOnly-cookie — спрашиваем сервер напрямую вместо
-  // decode-а JWT, который раньше лежал в localStorage.
   try {
     currentUser = await apiReq('GET', '/me');
   } catch {

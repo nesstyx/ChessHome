@@ -601,9 +601,6 @@
     return new Intl.NumberFormat('ru-RU').format(n);
   }
 
-  // escapeHtml удалена (P0, унификация): используем глобальную из /js/utils.js
-  // (opening-database.html подключает её до opening-board.js). DOM-вариант на
-  // textContent/innerHTML не экранировал кавычки — небезопасен для атрибутов.
 
   // ── Старт ────────────────────────────────────────────────────────────────
   initAnnotationHandlers();

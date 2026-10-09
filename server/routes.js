@@ -3,11 +3,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Здесь только регистрация путей: app.get/post/put/delete/all(...).
 // Вся логика, состояние и хелперы — в core.js, сюда просто
-// подключаем то же самое общее окружение и используем как раньше.
-//
-// Файл выполняется один раз при старте (require из index.js) и
-// навешивает все обработчики на общий app.
-// ═══════════════════════════════════════════════════════════════
 
 const {
   bcrypt,
@@ -161,8 +156,10 @@ const {
 const moderation = require('./moderation');
 require('./botmoderator');
 
-// Криптографический PRNG для кодов подтверждения (раньше использовался
-// Math.random — предсказуемая не-криптографическая последовательность).
+// Единая серверная реализация экранирования HTML — в server/utils.js
+// (используется в server-side рендере страницы партии /game/:gameId).
+const { escapeHtml } = require('./utils');
+
 const crypto = require('crypto');
 
 
@@ -196,9 +193,6 @@ for (const method of HTTP_METHODS) {
 
 
 // ── Общие хелперы валидации (DRY) ─────────────────────────────
-// Пагинация: единые границы для всех списков. Раньше каждый роут делал
-// parseInt по-своему: limit=-5 уезжал в SQL как LIMIT -5 (ошибка PG),
-// limit=100000 — как конкурент БД.
 function parsePagination(query, { defaultLimit = 20, maxLimit = 100 } = {}) {
   let limit = parseInt(query.limit, 10);
   if (!Number.isFinite(limit) || limit < 1) limit = defaultLimit;
@@ -211,8 +205,6 @@ function parsePagination(query, { defaultLimit = 20, maxLimit = 100 } = {}) {
 }
 
 // Контроль времени «10+0», «3+2», «60+0s» — единая проверка для турниров
-// и вызовов (раньше в tournaments.timeControl попадала любая строка,
-// а нестрока в startGame валила процесс TypeError'ом в split('+')).
 const TIME_CONTROL_RE = /^\d{1,3}(\.\d)?\+\d{1,2}(s)?$/;
 function parseTimeControl(tc) {
   if (typeof tc !== 'string' || !TIME_CONTROL_RE.test(tc)) return null;
@@ -223,7 +215,6 @@ function parseTimeControl(tc) {
 
 // Кэш «задачи дня» (см. GET /api/puzzles/daily): пересчёт раз в сутки.
 let dailyPuzzleCache = { day: -1, payload: null };
-
 
 
 // Корень "/" отдаём тем же путём (версия + no-store), а не через
@@ -248,10 +239,6 @@ app.get('/api/opening-explorer', async (req, res) => {
   }
 });
 
-
-// 4.4: /engine-play УДАЛЁН (сирота: ни одной ссылки в интерфейсе и sitemap;
-// дублировал доску/часы/модалки на ~500 строк поверх board.js). Отдельный
-// режим игры с движком в продукте не выделялся — анализ есть на /analysis.
 
 app.get('/opening-database', (req, res) => res.sendFile(path.join(__dirname, '../public/opening-database.html')));
 
@@ -285,7 +272,6 @@ app.get('/news/:id/comments', (req, res) => {
 app.get('/followers/:username', (req, res) => res.sendFile(path.join(__dirname, '../public/followers.html')));
 
 // 4.3: /following/:username отдаёт тот же followers.html — страница умеет
-// оба режима (isFollowers определяет эндпоинт по пути), following.html удалён.
 app.get('/following/:username', (req, res) => res.sendFile(path.join(__dirname, '../public/followers.html')));
 
 
@@ -295,8 +281,6 @@ app.get('/durka',    (req, res) => res.sendFile(path.join(__dirname, '../public/
 
 app.get('/ai', (req, res) => res.sendFile(path.join(__dirname, '../public/ai.html')));
 
-// Статические страницы — ЕДИНСТВЕННОЕ место регистрации (раньше дублировались
-// с циклом в core.js; /clubs регистрируется ниже отдельно, вместе с /clubs/:id).
 ['privacy','terms','about','admin','tournaments','tournament','admin-tournament','report'].forEach(p => {
   app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, '../public/' + p + '.html')));
 });
@@ -306,14 +290,6 @@ const SPA_ROUTES = ['/lobby', '/analysis', '/editor', '/leaderboard'];
 SPA_ROUTES.forEach(r => { app.get(r, (req, res) => res.sendFile(path.join(__dirname, '../public/index.html'))); });
 
 
-// ══════════════════════════════════════════════════════════════
-//  ЮKassa — мёртвый код УДАЛЁН
-//  Платежи вырезаны из продукта: donate.html не существует (роут /donate
-//  отдавал бы sendFile по несуществующему файлу), фронтенд не вызывает
-//  ни один /api/donate/* роут, хедер ведёт на CloudTips. Удалены:
-//  POST /api/donate/create, POST /api/donate/webhook (принимал любые
-//  подделки без проверки подписи), GET /api/donate/top,
-//  GET /api/donate/status/:id.
 // ══════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
@@ -356,11 +332,6 @@ app.post('/api/register',
       const deletedCheck = await db('SELECT username_low FROM deleted_usernames WHERE username_low = $1', [username.toLowerCase()]);
       if (deletedCheck.rows.length > 0) return res.status(400).json({ error: 'Этот ник недоступен для регистрации' });
 
-      // Full scan (БАГ производительности исправлен): раньше SELECT username FROM users
-      // тянул ВСЮ таблицу юзеров на каждую регистрацию. Теперь нормализация
-      // normForSimilarity воспроизведена на стороне SQL (translate + regexp_replace),
-      // точное сравнение выполняет PostgreSQL по expression-индексу
-      // idx_users_norm_username (создаётся в main() в core.js).
       const normNew = normForSimilarity(username);
       const clash = await db(
         `SELECT username FROM users
@@ -418,10 +389,6 @@ app.post('/api/login',
     const usernameLow = (username || '').toLowerCase().trim();
     if (!usernameLow || typeof password !== 'string') return res.status(400).json({ error: 'Укажите имя и пароль' });
 
-    // Брутфорс (issue H2): после 5 неудачных подряд С ЭТОГО IP логин этого
-    // ника блокируется на 15 минут. Ключ — «ник + IP», поэтому злоумышленник
-    // больше не может залочить вход жертве с пяти неверных попыток с одного
-    // адреса (DoS), а перебор пароля с одного IP по-прежнему бессмыслен.
     const loginIP = getIP(req);
     const streak = getLoginFailStreak(usernameLow, loginIP);
     if (streak >= 5) {
@@ -477,11 +444,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
 
 
 // ── Удаление аккаунта ────────────────────────────────────────
-// Раньше удаление требовало код из письма: но email из продукта выведен
-// (нигде не используется), поэтому подтверждение теперь — текущим паролем.
-// Кроме того, старый confirm-delete использовал client.query без определённого
-// client (ReferenceError при любом запросе, 500) — вся очистка данных теперь
-// идёт через withTransaction из core.js, атомарно.
 app.post('/api/account/delete', authMiddleware, rateLimit(limiterAuth, 'Слишком много попыток.'), async (req, res) => {
   const { password } = req.body;
   if (typeof password !== 'string' || !password) {
@@ -504,11 +466,6 @@ app.post('/api/account/delete', authMiddleware, rateLimit(limiterAuth, 'Слиш
     `);
     await db('INSERT INTO deleted_usernames (username_low, deleted_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.username.toLowerCase(), Date.now()]);
 
-    // Полная очистка (issue #50) в ОДНОЙ транзакции: удаление пользователя,
-    // ЛС, блокировок, подписок, попыток задач, жалоб, обращений, членства
-    // в клубах. Каждая таблица проверяется через to_regclass: в транзакции
-    // PostgreSQL любая ошибка (например, отсутствующая таблица) абортит ВСЮ
-    // транзакцию, поэтому «мягкие» try/catch вокруг отдельных DELETE не работают.
     await withTransaction(async (client) => {
       const tableExists = async (name) => {
         const r = await client.query('SELECT to_regclass($1) AS t', [`public.${name}`]);
@@ -618,14 +575,6 @@ app.get('/api/leaderboard', async (req, res) => {
 });
 
 
-// Раньше здесь было Math.max(onlineUsers.size, io.engine?.clientsCount || 0).
-// onlineUsers — Set из юзернеймов (уже без дублей), а io.engine.clientsCount —
-// это СЫРОЕ число открытых транспортных соединений на движке socket.io,
-// включая кратковременно "зависшие" старые соединения при быстрых
-// перезагрузках страницы (новый сокет уже подключился, а событие
-// disconnect старого ещё не долетело). Из-за Math.max счётчик онлайна
-// на секунды раздувался при частом F5, хотя реальных уникальных
-// пользователей больше не становилось. onlineUsers.size — точное число.
 app.get('/api/online',       (req, res) => res.json({ count: onlineUsers.size }));
 
 app.all('/api/ping',         (req, res) => res.status(200).end());
@@ -830,8 +779,6 @@ app.get('/api/admin/users', authMiddleware, async (req, res) => {
 });
 
 
-// Выдача/снятие роли администратора в рантайме (issue #27).
-// Роль — источник истины для requireAdmin и всех is*Admin-проверок.
 app.post('/api/admin/role', authMiddleware, async (req, res) => {
   await requireAdmin(req, res, async () => {
     try {
@@ -1264,9 +1211,6 @@ app.post('/api/appeals', authMiddleware, rateLimit(limiterStrict), async (req, r
 
 
 app.get('/api/appeals/mine', authMiddleware, async (req, res) => {
-  // N+1 (БАГ производительности исправлен): раньше на каждое обращение — отдельный
-  // SELECT сообщений (до 20+ запросов). Теперь JOIN-подход: два запроса суммарно —
-  // сами обращения + все сообщения одним списком, группируем в памяти.
   const list = await db(`SELECT * FROM appeals WHERE username = $1 ORDER BY created_at DESC LIMIT 20`, [req.user.username]);
   const ids = list.rows.map(r => r.id);
   const byAppeal = new Map();
@@ -1452,10 +1396,6 @@ app.post('/api/tournaments', authMiddleware, async (req, res) => {
 
   const bl = Array.isArray(blacklist) ? blacklist.map(s => String(s).toLowerCase().trim()).filter(Boolean).slice(0, 100) : [];
 
-  // Валидация числовых полей (issue M8): раньше timeControl сохранялся как есть
-  // (любая строка потом уезжала в startGame → split('+')), durationMinutes без
-  // границ давала NaN → endsAt: NaN ломал статусы турнира, maxParticipants/рейтинги
-  // — произвольные числа. Всё приводим к безопасным границам.
   const tc = parseTimeControl(timeControl);
   if (!tc) return res.status(400).json({ error: 'Неверный контроль времени (формат «10+0», «3+2»)' });
 
@@ -1489,12 +1429,6 @@ app.post('/api/tournaments', authMiddleware, async (req, res) => {
 
 
 // ── Создание межклубного турнира — теперь доступно любому пользователю ──
-// (раньше было только сайт-админу). В теле запроса вместо clubId/clubOnly
-// передаётся teamLinks — массив ссылок (или голых id) на клубы-команды,
-// которые будут сражаться в этом турнире. Управление уже созданным турниром
-// (редактирование, удаление) по-прежнему доступно только сайт-админу —
-// см. canManageTournament — это защита от того, что случайный участник
-// сможет менять состав команд или снести чужой турнир.
 app.post('/api/tournaments/interclub', authMiddleware, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Нет доступа' });
   const user = await getUser(req.user.username.toLowerCase());
@@ -1504,7 +1438,6 @@ app.post('/api/tournaments/interclub', authMiddleware, async (req, res) => {
   const { name, description, timeControl, durationMinutes, startsAt, minRating, maxRating, blacklist, teamLinks } = req.body;
   if (!name || !timeControl || !durationMinutes || !startsAt) return res.status(400).json({ error: 'Заполните обязательные поля' });
 
-  // Отсечь огромные массивы ДО дорогого поиска по клубам (FINDING-12).
   if (Array.isArray(teamLinks) && teamLinks.length > 500) return res.status(400).json({ error: 'Слишком много ссылок на команды' });
   const { teamIds, notFound } = resolveInterclubTeams(teamLinks);
   if (teamIds.length < 2) return res.status(400).json({ error: 'Нужно указать ссылки минимум на 2 клуба-команды' });
@@ -1529,7 +1462,6 @@ app.post('/api/tournaments/interclub', authMiddleware, async (req, res) => {
   }
 
   const bl = Array.isArray(blacklist) ? blacklist.map(s => String(s).toLowerCase().trim()).filter(Boolean).slice(0, 100) : [];
-  // Валидация — как в POST /api/tournaments (issue M8)
   const tc = parseTimeControl(timeControl);
   if (!tc) return res.status(400).json({ error: 'Неверный контроль времени (формат «10+0», «3+2»)' });
   let duration = parseInt(durationMinutes, 10);
@@ -1870,7 +1802,6 @@ app.get('/api/dm/messages/:partner', authMiddleware, async (req, res) => {
   // Сообщения, отправленные теневым баном, видит только сам отправитель —
   // если это писал partner, а не я, они для меня как будто не существуют.
   const rows = r.rows.filter(m => !m.shadow_hidden || m.from_user.toLowerCase() === me);
-  // Ответы (issue #56): подтягиваем цитируемые сообщения одной выборкой.
   const quotedIds = rows.map(m => m.reply_to_id).filter(Boolean);
   const quotedMap = new Map();
   if (quotedIds.length) {
@@ -1904,8 +1835,6 @@ app.post('/api/dm/send', authMiddleware, rateLimit(limiterStrict), async (req, r
   const blocked = await db('SELECT 1 FROM dm_blocks WHERE (blocker ILIKE $1 AND blocked ILIKE $2) OR (blocker ILIKE $2 AND blocked ILIKE $1)', [me, to]);
   if (blocked.rows.length > 0) return res.status(403).json({ error: 'Переписка заблокирована' });
 
-  // Ответ на конкретное сообщение (issue #56): проверяем, что цитируемое сообщение
-  // существует и принадлежит этой же переписке.
   let replyToId = null;
   if (typeof replyTo === 'string' && replyTo) {
     const q = await db('SELECT id FROM dm_messages WHERE id = $1 AND ((from_user ILIKE $2 AND to_user ILIKE $3) OR (from_user ILIKE $3 AND to_user ILIKE $2)) LIMIT 1', [replyTo, me.toLowerCase(), to.toLowerCase()]);
@@ -1947,10 +1876,6 @@ app.post('/api/dm/block', authMiddleware, async (req, res) => {
   const me = req.user.username;
   const { username } = req.body;
   if (!username || username.toLowerCase() === me.toLowerCase()) return res.status(400).json({ error: 'Неверный запрос' });
-  // БАГ (исправлен): в запрос передавалась несуществующая переменная e
-  // (ReferenceError при любой блокировке) — должно быть me. Заодно
-  // new Date().toISOString() -> Date.now(): колонка dm_blocks.ts — BIGINT
-  // (тот же класс бага, что и с createdAt клубов).
   await db('INSERT INTO dm_blocks (blocker, blocked, ts) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [me, username, Date.now()]);
   res.json({ ok: true });
 });
@@ -2054,8 +1979,6 @@ app.get('/api/admin/dm/messages/:username/:partner', authMiddleware, async (req,
 });
 
 
-// Аудит-лог просмотров переписок — кто из админов и когда смотрел
-// чьи ЛС. Помогает расследовать злоупотребление доступом.
 app.get('/api/admin/dm/audit', authMiddleware, async (req, res) => {
   await requireAdmin(req, res, async () => {
     const target = (req.query.target || '').toLowerCase();
@@ -2202,8 +2125,6 @@ app.get('/api/forum/threads/:slug', async (req, res) => {
   const totalReplies = allReplies.length;
   const replies = allReplies.slice(start, end);
 
-  // Реакции ответов (issue #45): одна агрегация на страницу вместо запроса на ответ.
-  // viewerUsername — для подсветки собственной реакции на клиенте.
   let viewerUsername = null;
   const authTok946 = getAuthToken(req);
   if (authTok946) { try { viewerUsername = jwt.verify(authTok946, JWT_SECRET).username.toLowerCase(); } catch {} }
@@ -2337,8 +2258,6 @@ app.delete('/api/forum/replies/:id', authMiddleware, handleDeleteForumReply);
 app.post('/api/forum/replies/:id/delete', authMiddleware, handleDeleteForumReply);
 
 
-// Реакции на ответах форума (issue #45): toggle-механика как у комментариев блога.
-// Повторный клик по своему эмодзи снимает реакцию, клик по другому — заменяет.
 const FORUM_REPLY_EMOJIS = ['👍','👎','❤️','😂','😮','♟️'];
 app.post('/api/forum/replies/:id/react', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
   const user = await getUser(req.user.username.toLowerCase());
@@ -2378,7 +2297,6 @@ app.post('/api/forum/threads', authMiddleware, rateLimit(limiterStrict), async (
   if (body.length > 10000) return res.status(400).json({ error: 'Текст слишком длинный (макс 10 000)' });
 
   // Ограничение: не более 3 тем в сутки — через общий countTodayByUser
-  // (раньше подсчёт был продублирован инлайн-фильтрацией массива).
   if (countTodayByUser(forumThreads, user.username) >= 3) {
     return res.status(429).json({ error: 'Вы уже создали 3 темы сегодня. Лимит сбросится в полночь.' });
   }
@@ -2525,9 +2443,6 @@ app.get('/api/blog', async (req, res) => {
     if (section === 'community') list = list.filter(p => !!p.community);
   }
 
-  // Поиск по блогам (issue #51): регистронезависимый поиск по заголовку
-  // и тексту статьи (внутренние объекты blogPosts содержат body).
-  // Пустой/короткий q — фильтр не применяется.
   const searchQ = typeof q === 'string' ? q.trim().toLowerCase() : '';
   if (searchQ.length >= 2) {
     list = list.filter(p =>
@@ -2536,13 +2451,6 @@ app.get('/api/blog', async (req, res) => {
     );
   }
 
-  // Раньше опубликованные статьи всегда сортировались только по
-  // популярности (просмотры + лайки×3). Из-за этого свежая статья с
-  // нулевыми просмотрами падала в самый низ и, если постов в разделе
-  // больше `limit`, вообще не попадала на первую страницу — выглядело
-  // так, будто она "удалилась" сразу после публикации. Теперь сортировка
-  // управляется параметром sort: 'recent' (по умолчанию, свежие сверху)
-  // или 'popular' (по просмотрам/лайкам, как раньше).
   if (status === 'drafts' || status === 'hidden') {
     list.sort((a,b) => (b.updatedAt||b.createdAt) - (a.updatedAt||a.createdAt));
   } else if (sort === 'popular') {
@@ -2556,7 +2464,6 @@ app.get('/api/blog', async (req, res) => {
 
   res.json({ posts: list.slice(page*limit, page*limit+limit).map(p => blogSanitize(p,false)), total: list.length });
 });
-
 
 
 app.get('/api/blog/:id', async (req, res) => {
@@ -2841,9 +2748,6 @@ app.post('/api/blog/:id/comments/:cid/react', blogAuthMiddleware, rateLimit(limi
   const { emoji } = req.body;
   if (!emoji) {
     await db('DELETE FROM blog_comment_reactions WHERE comment_id=$1 AND user_id=$2',[req.params.cid,user.username.toLowerCase()]);
-    // Баг #40: раньше ветка удаления НЕ возвращала карту реакций — клиент
-    // перезаписывал c.reactions пустым объектом и до F5 исчезали ВСЕ чужие
-    // эмодзи у комментария. Возвращаем актуальную карту после DELETE.
     const rr = await db('SELECT emoji, COUNT(*) as cnt FROM blog_comment_reactions WHERE comment_id=$1 GROUP BY emoji',[req.params.cid]);
     const reactions = {};
     for (const row of rr.rows) reactions[row.emoji] = Number(row.cnt);
@@ -3218,9 +3122,6 @@ app.post('/api/upload', newsAuthMiddleware, rateLimit(limiterStrict), (req, res)
   uploadImage.single('file')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Не удалось загрузить файл' });
     if (!req.file) return res.status(400).json({ error: 'Файл не передан' });
-    // Безопасность (issue H3): mimetype приходит от клиента и полностью
-    // контролируется им. Проверяем magic bytes фактического содержимого:
-    // подделка image/jpeg для shell.html отсеется здесь (файл удалён).
     const fd = fs.openSync(req.file.path, 'r');
     const buf = Buffer.alloc(16);
     let read = 0;
@@ -3272,8 +3173,6 @@ app.post('/api/clubs', authMiddleware, rateLimit(limiterStrict), async (req, res
   if (memberOf >= 10) return res.status(400).json({ error: 'Вы уже состоите в 10 клубах (максимум)' });
   if (clubs.find(c => c.name.toLowerCase() === trimmedName.toLowerCase())) return res.status(400).json({ error: 'Клуб с таким названием уже существует' });
   const id = uuidv4();
-  // БАГ (исправлен): createdAt был new Date().toISOString() — строка в BIGINT-колонку
-  // clubs.created_at (invalid input syntax for type bigint). Теперь числовой таймстемп.
   const club = { id, name: trimmedName, description: (description || '').toString().trim().slice(0, 500), createdAt: Date.now(), createdBy: me.username, admins: [me.username], members: [me.username], memberCount: 1, official: false };
   clubs.push(club);
   await saveClub(club);
@@ -3311,9 +3210,6 @@ app.post('/api/user/emoji', authMiddleware, async (req, res) => {
     const { emoji } = req.body;
     if (typeof emoji !== 'string') return res.status(400).json({ error: 'Неверный эмодзи' });
     // Белый список: разрешён ТОЛЬКО пустая строка (снять эмодзи) или
-    // один из эмодзи, показанных в пикере на /settings. Раньше здесь
-    // был чёрный список "запрещённых" эмодзи — он не мешал прислать
-    // произвольный текст напрямую через API, минуя интерфейс.
     if (emoji !== '' && !PROFILE_EMOJIS.has(emoji)) {
       return res.status(400).json({ error: 'Этот эмодзи запрещён' });
     }
@@ -3349,10 +3245,6 @@ app.post('/api/user/profile', authMiddleware, async (req, res) => {
     if (bio != null && typeof bio !== 'string') return res.status(400).json({ error: 'Неверное описание' });
     bio = cleanBio(bio || '').slice(0, 400);
 
-    // БАГ (исправлен): раньше проверка Number.isFinite выполнялась ДО
-    // нормализации пустой строки — стертое в поле значение ("") отбивалось
-    // ошибкой 400, и очистить рейтинг было невозможно. Теперь сначала
-    // нормализуем "" -> null, затем валидируем оставшиеся значения.
     fshrRating = (fshrRating === '' || fshrRating === undefined) ? null : fshrRating;
     fideRating = (fideRating === '' || fideRating === undefined) ? null : fideRating;
     for (const [label, val] of [['ФШР', fshrRating], ['FIDE', fideRating]]) {
@@ -3717,9 +3609,6 @@ app.post('/api/durka/add-tournament', rateLimit(limiterStrict, 'Слишком �
 
 app.get('/api/puzzles/daily', async (req, res) => {
   try {
-    // Full scan (БАГ производительности исправлен): раньше на КАЖДЫЙ запрос
-    // читались ВСЕ задачи (SELECT * FROM puzzles). Выбор детерминирован датой,
-    // поэтому считаем его раз в сутки и кэшируем в памяти.
     const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
     if (dailyPuzzleCache.day === dayIndex && dailyPuzzleCache.payload) {
       return res.json(dailyPuzzleCache.payload);
@@ -3844,9 +3733,6 @@ app.post('/api/puzzles/:id/move', authMiddleware, rateLimit(limiterStrict), asyn
       || acceptedMoves.some(m => m.length===4 && playerMove.startsWith(m))
       || acceptedMoves.some(m => m.length===5 && m.endsWith('q') && playerMove===m.slice(0,4));
     // Безопасность (P0): решение задачи больше НИКОГДА не покидает сервер.
-    // Раньше при неверном ходе уходило { correct:false, solution: puzzle.solution } —
-    // достаточно было послать заведомо кривой ход, и весь sol со всеми
-    // вариантами/ответными ходами автомата оказывался в ответе API.
     if (!correct) return res.json({ correct: false });
     const autoMove = autoMoves[moveIndex] || null;
     const finished = moveIndex >= playerMoves.length - 1;
@@ -3863,10 +3749,6 @@ app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), a
     if (!r.rows[0]) return res.status(404).json({ error: 'Задача не найдена' });
     const puzzle = r.rows[0];
 
-    // Накрутка рейтинга (issue M3): раньше тело запроса с { correct: true }
-    // засчитывало решение БЕЗ каких-либо ходов — скрипт рассылал correct:true
-    // по всем задачам и получал +15 к рейтингу за каждую. Теперь корректность
-    // определяется ТОЛЬКО серверной проверкой присланных ходов.
     if (!Array.isArray(moves) || moves.length === 0) {
       return res.status(400).json({ error: 'Не указаны ходы решения' });
     }
@@ -3895,8 +3777,6 @@ app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), a
       await db(`INSERT INTO puzzle_attempts (id,user_id,puzzle_id,correct,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id,puzzle_id) DO UPDATE SET correct=$4,created_at=$5`, [uuidv4(), user.id, puzzle.id, correct, Date.now()]);
       await db('UPDATE puzzles SET play_count=play_count+1 WHERE id=$1', [puzzle.id]);
       if (correct) await db('UPDATE puzzles SET correct_count=correct_count+1 WHERE id=$1', [puzzle.id]);
-      // Атомарные инкременты (гонка данных): раньше read-modify-write через
-      // user-объект терял обновления при параллельных запросах.
       const ratingDelta = correct ? 15 : -10;
       const upd = await db(
         `UPDATE users SET
@@ -3922,31 +3802,10 @@ app.post('/api/puzzles/:id/attempt', authMiddleware, rateLimit(limiterStrict), a
 
 // ══════════════════════════════════════════════════════════════
 //  PUZZLE STORM API — старый анонимный эндпоинт с УТЕЧКОЙ РЕШЕНИЙ
-//  УДАЛЁН (issue C1): он отдавал колонку solution любому посетителю.
-//  Новый серверно-авторитетный набор: /api/storm/start (ниже),
-//  /api/storm/puzzles (ниже), /api/storm/move (ниже), /api/storm/finish (ниже).
-// ══════════════════════════════════════════════════════════════
-// (старый app.get('/api/storm/puzzles', ...) с res.json(r.rows) удалён)
 
 // ══════════════════════════════════════════════════════════════
 //  PUZZLE STORM API
 //
-//  Безопасность (issue C1, КРИТИЧНО): раньше GET /api/storm/puzzles
-//  отдавал клиенту колонку solution ЧИСТЫМ ТЕКСТОМ, а правильность ходов
-//  проверялась только в браузере. Любой скрипт: скачал задачи с решениями →
-//  рассылал ответы на автопилоте (выдерживая серверный минимум 350мс/задачу)
-//  → отправлял finish с correct=score → все серверные проверки проходили.
-//  Итог — верхние строчки leaderboard нулевыми усилиями.
-//
-//  Теперь вся игра авторитетно считается на сервере:
-//    POST /api/storm/start — сервер создаёт забег и держит решения в памяти;
-//    GET  /api/storm/puzzles — задачи БЕЗ решений (только fen/topic/difficulty
-//                              и число ходов игрока для подписи «Мат в N»);
-//    POST /api/storm/move    — каждый ход проверяет сервер, сервер же ведёт
-//                              счёт solved/wrong;
-//    POST /api/storm/finish  — очки берутся ТОЛЬКО из серверных счётчиков,
-//                              клиентские числа игнорируются.
-//  ══════════════════════════════════════════════════════════════
 
 app.post('/api/storm/start', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
   const runId = uuidv4();
@@ -4043,8 +3902,6 @@ app.post('/api/storm/move', authMiddleware, rateLimit(limiterStrict), async (req
 app.post('/api/storm/finish', authMiddleware, rateLimit(limiterStrict), async (req, res) => {
   try {
     const { score, totalAttempted, correct, wrong, timeBonus, runId } = req.body;
-    // Типовая валидация клиентских полей (issue L3): они больше НЕ влияют
-    // на результат, но мусор в них не должен ронять эндпоинт 500-й.
     for (const v of [score, totalAttempted, correct, wrong, timeBonus]) {
       if (v !== undefined && !Number.isFinite(Number(v))) return res.status(400).json({ error: 'Неверные данные' });
     }
@@ -4218,7 +4075,6 @@ app.get('/api/stats', async (req, res) => {
     });
   } catch(e) { console.error('[Stats]', e.message); res.status(500).json({ error: 'Ошибка' }); }
 });
-
 
 
 // ── Dev Diary API ───────────────────────────────────────────
@@ -4406,9 +4262,6 @@ app.post('/api/admin/dev-diary-comment-ban', authMiddleware, async (req, res) =>
 
 app.get('/game/:gameId', async (req, res) => {
   const gameId = req.params.gameId;
-  // Безопасность (issue L2/C3): формат id проверяем жёстко — параметр URL попадал
-  // в inline <script> без экранирования, и %22+alert(1)+%22 исполнялся.
-  // Строгий whitelist uuid снимает вектор целиком (в т.ч. до похода в БД).
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(gameId)) {
     return res.status(404).send('Игра не найдена');
   }
@@ -4442,10 +4295,6 @@ app.get('/game/:gameId', async (req, res) => {
     }
   }
 
-  // Безопасность (issue C3): JSON.stringify НЕ экранирует <, поэтому строка
-  // вида "</script><img src=x onerror=...>" внутри значения (promotion — теперь
-  // whitelist'ится в make_move, но tournamentName — свободный текст) разрывала
-  // inline <script>. Экранируем HTML-опасные символы и разделители строк JSON.
   const jsonForInline = (v) => JSON.stringify(v)
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
@@ -4624,21 +4473,9 @@ app.get('/game/:gameId', async (req, res) => {
     </html>
   `);
 
-  // Единая безопасная реализация (P0, унификация escapeHtml): экранирует
-  // ВСЕ пять спецсимволов HTML, включая кавычки ' и " — раньше здесь были
-  // только & < >, поэтому ник с кавычкой мог вырваться из атрибута тега.
-  function escapeHtml(str) {
-    return String(str == null ? '' : str).replace(/[&<>"']/g, function(m) {
-      switch (m) {
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        case "'": return '&#39;';
-        default:  return m;
-      }
-    });
-  }
+  // Единая безопасная реализация экранирования (P0, унификация escapeHtml)
+  // импортирована из server/utils.js — экранирует ВСЕ пять спецсимволов HTML,
+  // включая кавычки ' и ".
   // XSS (P0): ники игроков вставляются в сгенерированную HTML-страницу —
   // обязаны проходить через escapeHtml, иначе ник вида
   // `<img src=x onerror=...>` исполнялся бы в браузере у любого открывшего.
@@ -4651,7 +4488,6 @@ app.get('/game/:gameId', async (req, res) => {
     return `Партия завершена`;
   }
 });
-
 
 
 app.get('*', (req, res) => {

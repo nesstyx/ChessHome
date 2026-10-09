@@ -481,8 +481,6 @@ const chessBoard = (() => {
     playSound(move);
 
     if (gameMode === 'online' && socket) {
-      // (issue #52): ход, сделанный до auth_ok (реконнект/загрузка), уходит в
-      // очередь и доставляется после авторизации сокета — раньше терялся молча.
       if (typeof emitGameplayEvent === 'function') {
         emitGameplayEvent('make_move', { gameId, move });
       } else {
@@ -565,11 +563,6 @@ const chessBoard = (() => {
     } else if (status.status === 'stalemate') {
       setTimeout(() => {
         showGameResult(T('game.draw', 'Ничья'), drawReasonText('stalemate'));
-        // БАГ (исправлено): раньше здесь только показывали окно и глушили
-        // свои часы, но не сообщали серверу — партия оставалась «живой»
-        // в activeGames, серверные часы продолжали тикать, а ходить было
-        // невозможно (позиция патовая). Теперь, как и при мате, шлём
-        // game_over — сервер сам перепроверяет пат и завершает партию.
         if (gameMode === 'online' && socket) {
           socket.emit('game_over', { gameId, result: 'draw', reason: 'stalemate' });
         }
@@ -579,8 +572,6 @@ const chessBoard = (() => {
       setTimeout(() => {
         showGameResult(T('game.draw', 'Ничья'), drawReasonText(status.reason));
         // То же самое для 50 ходов / недостатка материала / троекратного
-        // повторения позиций — раньше ни один из этих исходов не сообщался
-        // серверу, партия никогда официально не завершалась.
         if (gameMode === 'online' && socket) {
           socket.emit('game_over', { gameId, result: 'draw', reason: status.reason });
         }
@@ -726,9 +717,8 @@ const chessBoard = (() => {
   // Реальное отображаемое время = сохранённое - (now - clockTickAt) для activeColor.
   let clockTickAt = null; // Date.now() в момент последнего tickClock() / syncClock
 
-  // opts.autoStart  — сразу запустить отсчёт (онлайн-партия: сервер уже тикает).
-  // opts.preElapsed — сколько секунд уже истекло на сервере к моменту
-  //                   получения game_start (синхронизация первого хода, P1).
+  // opts.autoStart  — сразу запустить отсчёт (используется при реджойне в
+  //                   уже идущей партии, когда ходы на сервере есть).
   function startClock(wTime, bTime, tc, opts) {
     const parsed = parseTC(tc || '10+0');
     whiteTime = wTime !== undefined ? wTime : parsed[0] * 60;
@@ -740,14 +730,8 @@ const chessBoard = (() => {
     clearInterval(clockInterval);
 
     if (opts && opts.autoStart) {
-      // Сервер — источник истины: его liveClock сжигает время белых с момента
-      // создания партии (game.lastMoveAt). Раньше клиент давал белым 10с грейс
-      // и запускал часы только после первого хода — на первом ходу показания
-      // расходились с сервером на всё время размышления, и после move_confirmed
-      // время «прыгало» вниз. Теперь: вычитаем уже истёкшие на сервере секунды
-      // (с защитой от грубого рассинхрона часов) и тикаем сразу.
-      const pre = Math.max(0, Math.min(Number(opts.preElapsed) || 0, 30));
-      if (pre > 0) whiteTime = Math.max(0, whiteTime - pre);
+      // Реджойн в уже идущую партию: серверный liveClock уже тикает —
+      // мгновенно включаем локальный отсчёт. Для НОВОЙ партии autoStart
       clockRunning = true;
       clockTickAt = Date.now();
       clockInterval = setInterval(clockTick_interval, 100);
@@ -769,7 +753,7 @@ const chessBoard = (() => {
 
     // Инкремент — добавляем тому, кто только что сходил
     if (clockRunning && tcIncrement > 0) {
-      if (justMoved === 'w') whiteTime = Math.min(whiteTime + tcIncrement, whiteTime + tcIncrement);
+      if (justMoved === 'w') whiteTime = whiteTime + tcIncrement;
       else blackTime += tcIncrement;
     }
 
@@ -806,11 +790,6 @@ const chessBoard = (() => {
       const loser = activeColor;
       if (loser === 'w') whiteTime = 0; else blackTime = 0;
       stopClock();
-      showGameResult(loser === 'w' ? T('game.win_black', 'Чёрные победили!') : T('game.win_white', 'Белые победили!'), T('game.time_out', 'Время вышло'));
-      if (gameMode === 'online' && socket && gameId) {
-        const result = loser === 'w' ? 'black' : 'white';
-        socket.emit('game_over', { gameId, result, reason: 'timeout' });
-      }
     }
   }
 
@@ -836,8 +815,6 @@ const chessBoard = (() => {
     updateClockDisplay();
   }
 
-  // Возвращает [минуты, инкремент]. Поддерживает «15s+0» (секунды) — раньше
-  // Number('15s') давал NaN и контроль молча превращался в 10 минут.
   function parseTC(tc) {
     const [baseRaw, incRaw] = String(tc || '10+0').split('+');
     let min;
@@ -932,6 +909,7 @@ const chessBoard = (() => {
       const reasons = {
         checkmate: T('game.checkmate', 'Мат'),
         timeout:   T('game.time_out', 'Время вышло'),
+        timeout_firstmove: T('game.time_out_first_move', 'Время на первый ход вышло'),
         agreement: T('game.by_agreement', 'По соглашению'),
       };
       reasonText = reasons[data.reason] || drawReasonText(data.reason) || '';
@@ -953,15 +931,6 @@ const chessBoard = (() => {
 
   // ─── INIT GAME ─────────────────────────────────────────────
   function resyncFromServer(data) {
-    // БАГ (исправлено, см. index.js:make_move): сервер раньше мог тихо
-    // отбросить ход (например, если по факту сейчас не ваш ход — из-за
-    // потерянного из-за короткого обрыва связи предыдущего сообщения),
-    // а клиент к этому моменту уже ПРИМЕНИЛ ход локально оптимистично
-    // (см. executeMove выше) — доска показывала ход, которого на сервере
-    // никогда не было, партия "зависала". Теперь сервер в таких случаях
-    // шлёт 'move_rejected' с полной актуальной историей ходов и временем,
-    // и мы полностью пересобираем локальную позицию с нуля по этим
-    // данным — откатывая всё, чего сервер не подтвердил.
     if (gameMode !== 'online') return;
     const wasViewingLive = viewingMove === -1;
     state = ChessEngine.parseFEN(ChessEngine.START_FEN);
@@ -1057,16 +1026,10 @@ const chessBoard = (() => {
       clockRunning = true;
       clockInterval = setInterval(clockTick_interval, 100);
     } else {
-      // Новая игра — синхронизируемся с серверным liveClock (P1): сервер начал
-      // сжигать время белых с момента game.lastMoveAt (создание партии),
-      // поэтому клиентский отсчёт запускаем немедленно и вычитаем секунды,
-      // истёкшие на сервере за время доставки game_start.
       const [min] = parseTC(data.timeControl || '10+0');
-      const preElapsed = data.lastMoveAt ? (Date.now() - data.lastMoveAt) / 1000 : 0;
-      // Сервер — источник истины: берём его whiteTime/blackTime, если пришли.
       const startW = data.whiteTime !== undefined ? data.whiteTime : min * 60;
       const startB = data.blackTime !== undefined ? data.blackTime : min * 60;
-      startClock(startW, startB, data.timeControl, { autoStart: true, preElapsed });
+      startClock(startW, startB, data.timeControl);
     }
 
     render();
@@ -1161,7 +1124,6 @@ const chessBoard = (() => {
     gameMode = 'analysis'; gameId = null; playerColor = 'w';
     isFlipped = false;
     stopClock();
-    // Новая сессия анализа — сбрасываем память AI-комментатора (issue #71)
     if (typeof AICommentator !== 'undefined') AICommentator.reset();
     render();
     if (typeof requestAnalysis === 'function') requestAnalysis();
@@ -1190,7 +1152,6 @@ const chessBoard = (() => {
     gameId = null; // режим анализа всегда локальный (иначе pages['game'] не пересоздаст партию)
     isFlipped = false;
     stopClock();
-    // Новая партия — сбрасываем память AI-комментатора (issue #71)
     if (typeof AICommentator !== 'undefined') AICommentator.reset();
 
     for (const move of moves) {

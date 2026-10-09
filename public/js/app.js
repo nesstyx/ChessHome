@@ -32,7 +32,6 @@ function toggleLoginPasswordVisibility(btn) {
 const STREAMERS = ['VLAD', 'Solo', 'aaa', 'GGbers'];
 
 
-
 // ─── ФИЛЬТР ЧАТА ───────────────────────────────────────────
 // Мат / реальные ругательства. Убрал сюда генерические оскорбления
 // ("дебил","идиот","тварь","урод","мразь","чмо","аутист","даун",
@@ -94,7 +93,6 @@ function normalize(text) {
 }
 
 function containsBadWords(text) {
-  // 1) Спам/казино/ссылки — как и раньше, где угодно в склеенной строке.
   const collapsed = normalize(text);
   if (SPAM_WORDS.some(word => collapsed.includes(normalize(word)))) return true;
 
@@ -154,9 +152,6 @@ function showPage(name) {
 
 // ─── API ──────────────────────────────────────────────────────
 // Сервер иногда может ответить не JSON'ом (HTML-страница от прокси/
-// хостинга при 502/503, таймаут и т.п.) — раньше res.json() в таком
-// случае падал с "Unexpected token '<', ... is not valid JSON" и
-// пользователь видел эту техническую абракадабру вместо понятной ошибки.
 async function parseApiResponse(res) {
   const text = await res.text();
   let data;
@@ -188,17 +183,6 @@ async function apiGet(path) {
 }
 
 // ─── TOAST ────────────────────────────────────────────────────
-function toast(msg, type = 'info') {
-  const container = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.innerHTML = `<span>${{ success: '✓', error: '✗', info: 'ℹ' }[type] || 'ℹ'}</span><span>${msg}</span>`;
-  container.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0'; el.style.transform = 'translateX(30px)'; el.style.transition = '0.3s';
-    setTimeout(() => el.remove(), 300);
-  }, 3000);
-}
 
 // ─── AUTH ──────────────────────────────────────────────────────
 function updateAuthUI() {
@@ -306,10 +290,6 @@ async function refreshCurrentUser() {
 let _socketAuthed = false;
 let _pendingGlobalMsgs = [];
 
-// Очередь gameplay-событий до авторизации сокета (issue #52): make_move и
-// game_chat, отправленные в окне «connect → auth → auth_ok» (загрузка страницы,
-// реконнект), раньше уходили в никуда — сервер молча отбрасывал их без
-// socket.username. Теперь события ждут auth_ok и доставляются после него.
 let _pendingGameplayEvents = [];
 function emitGameplayEvent(event, payload) {
   if (_socketAuthed) { socket.emit(event, payload); return; }
@@ -345,14 +325,6 @@ function connectSocket() {
   socket.on('challenges_update', challenges => renderChallengeList(challenges));
   socket.on('game_start', data => {
     if (data.moves && data.moves.length > 0) {
-      // Реджойн после обрыва связи/перезагрузки. Раньше в ЛЮБОМ случае
-      // показывался баннер "вернуться в партию?" — из-за этого простой
-      // F5 посреди своей же игры выглядел как переход в "просмотрщик":
-      // страница игры уже открыта (URL /game/<id>), а сама партия ещё не
-      // запущена, пока не нажмёшь на баннер. Если мы и так уже находимся
-      // на странице именно этой партии — возвращаем в игру сразу, без
-      // лишнего клика. Баннер оставляем только на случай, если игрок
-      // ушёл на другую страницу (лобби и т.п.) и его нужно спросить.
       if (location.pathname === '/game/' + data.gameId) {
         _rejoinData = data;
         doRejoin();
@@ -377,14 +349,6 @@ function connectSocket() {
   socket.on('opponent_move', (data) => chessBoard.applyOpponentMove(data.move, data.whiteTime, data.blackTime));
   socket.on('move_confirmed', (data) => chessBoard.syncClockFromServer(data.whiteTime, data.blackTime));
   socket.on('move_rejected', (data) => {
-    // БАГ (исправлено): сервер раньше молча игнорировал ход, если, с его
-    // точки зрения, сейчас не ваш ход или он незаконный (см. index.js:
-    // make_move) — а доска у вас уже показывала этот ход как сделанный
-    // (см. board.js:executeMove — ход применяется локально сразу, не
-    // дожидаясь подтверждения). В итоге позиция окончательно расходилась
-    // с сервером, и партия просто зависала: сходить нельзя, время идёт.
-    // Теперь по такому сигналу откатываем доску к реальному, подтверждённому
-    // сервером состоянию партии.
     const reasons = {
       'not-your-turn': 'Ход не принят: рассинхронизация с сервером',
       'illegal-move':  'Ход не принят: незаконный ход',
@@ -458,10 +422,6 @@ function connectSocket() {
   socket.on('tournament_created', (t) => {
     toast('🎯 Новый турнир: ' + t.name + ' (' + t.timeControl + ')', 'info');
   });
-  // Мёртвый слушатель tournament_finished_notify УДАЛЁН (issue #55): сервер
-  // такое событие никогда не эмитил (глобальных рассылок о завершении нет —
-  // только точечный 'tournament_finished' в комнату турнира). Подписываемся
-  // на реальное событие: уведомление получат только участники/зрители турнира.
   socket.on('tournament_finished', (data) => {
     toast('🏆 Турнир завершён. Победитель: ' + (data?.winner || '—'), 'success');
   });
@@ -501,9 +461,6 @@ function closeMobileNav() {
   if (window.CH) CH.closeMobileNav();
 }
 
-// Мёртвая логика мобильного меню УДАЛЕНА (updateMobileNav/mobileLogout):
-// селекторы #mobile-nav-user, #mobile-profile-link, #mobile-settings-link
-// отсутствуют в DOM — навигация полностью в header.js.
 
 // Закрывать мобильное меню по Escape и свайпу назад
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileNav(); });
@@ -532,8 +489,6 @@ async function fetchOnline() {
     }
   } catch {}
 }
-
-
 
 
 // ─── LOBBY ────────────────────────────────────────────────────
@@ -646,12 +601,6 @@ function selectRated(rated) {
 function postChallenge() {
   if (!currentUser) { openModal('modal-login'); return; }
   if (!socket) { toast('Нет соединения. Войдите заново.', 'error'); return; }
-  // БАГ (исправлено): та же история, что раньше была в чате (см. sendChatMsg/
-  // sendGlobalChatMsg) — проверка socket.connected иногда ловила долю секунды
-  // штатного переподключения socket.io (например, смена вышки/wifi) и писала
-  // "нет соединения", хотя связь была рабочая. Socket.IO сам буферизует emit
-  // на такой короткий обрыв и отправит его сразу после переподключения —
-  // поэтому просто отправляем, не блокируя по .connected.
   socket.emit('post_challenge', { timeControl: selectedTC, color: selectedColor, rated: selectedRated });
   toast(selectedRated ? 'Вызов выставлен в зал!' : 'Товарищеский вызов выставлен в зал!', 'success');
 }
@@ -914,13 +863,6 @@ function challengeUser(username) {
 }
 
 
-// Хард-релоад при первом визите УДАЛЁН (баг #44 + #52): цепочка из двух
-// перезагрузок (эта + index.html pageReloaded) рвала сокет и auth при каждом
-// «перезапуске» страницы во время партии — игрок получал «game over» вместо
-// обновления, а сообщения/ходы в окне реконнекта молча терялись.
-// Актуализация кэша обеспечивается версионированием /js/*.js?v=BUILD_VERSION
-// на сервере (см. core.js sendVersionedHtml) + maxAge для статики.
-
 // ─── GAME UI ──────────────────────────────────────────────────
 let _currentGameData = null; // текущие данные активной онлайн-игры для реджойна
 
@@ -1082,18 +1024,12 @@ function sendChatMsg() {
 
   // Socket.IO сам буферизует emit во время короткого переподключения и
   // отправит сообщение, как только связь восстановится — поэтому здесь
-  // больше НЕ проверяем socket.connected. Раньше из-за этой проверки чат
-  // иногда писал "нет соединения" даже при доле секунды обрыва (смена
-  // сети, сворачивание вкладки и т.п.), хотя интернет был в порядке.
-  // (issue #52): до auth_ok сообщение уходит в очередь emitGameplayEvent, а не
-  // теряется. Локальная отрисовка — только после фактического emit.
   emitGameplayEvent('game_chat', { gameId: chessBoard.gameId, message: msg });
   appendChatMsg(currentUser.username, msg, true);
 
   input.value = '';
   input.focus();
 }
-
 
 
 // ─── ГЛОБАЛЬНЫЙ ЧАТ ──────────────────────────────────────────
@@ -1171,12 +1107,6 @@ function appendGlobalChatMsg(msg, scroll = true) {
   const canDelete  = currentUser?.role === 'admin';
 
   // Проверяем упоминание текущего пользователя
-  // БАГ (issue, исправлено): раньше был простой .includes('@nick') без границы
-  // слова — для ника ChessHome вся строка подсвечивалась на сообщение
-  // "@CHESSHOMEREVOLUTION где?" (подстрока входит в чужой ник). Теперь ищем
-  // ТОКЕН @ник с границей слова на конце: за ником должен идти символ, не
-  // входящий в состав ников (буква/цифра/подчёркивание/дефис запрещены),
-  // либо конец строки. Регэскейп ника защищает от спецсимволов в нём.
   const isMentioned = (() => {
     if (!currentUser || !msg.message) return false;
     const myName = currentUser.username.toLowerCase();
@@ -1308,8 +1238,6 @@ function appendGlobalChatMsg(msg, scroll = true) {
     delBtn.onclick = () => deleteChatMsg(msg.id, row);
     header.appendChild(delBtn);
   }
-  // БАГ (исправлен): условие включало !canDelete ("зритель не админ"), поэтому
-  // когда в чат заходил администратор, у ВСЕХ обычных сообщений пропадали аватарки.
   if (!isStreamer && !isAdmin){
     const av = document.createElement('div');
   av.style.cssText = 'width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-dark));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#000;flex-shrink:0;cursor:pointer;margin-top:2px';
@@ -1335,7 +1263,6 @@ function appendGlobalChatMsg(msg, scroll = true) {
   }
   
 } 
-
 
 
 async function deleteChatMsg(msgId, rowEl) {
@@ -1448,16 +1375,6 @@ function sendGlobalChatMsg() {
 
   // Как и в игровом чате — не блокируем отправку по socket.connected:
   // Socket.IO сам поставит сообщение в очередь на долю секунды обрыва
-  // связи и отправит его сразу после переподключения. Раньше именно
-  // эта проверка иногда показывала "нет соединения" при фактически
-  // рабочем интернете.
-  //
-  // НО: помимо транспортного connected, у нас есть свой шаг аутентификации
-  // (connect -> emit('auth') -> сервер асинхронно проверяет cookie -> auth_ok).
-  // Если отправить global_chat до auth_ok, сервер ещё не знает, какому
-  // пользователю принадлежит сокет, и сообщение молча терялось — это и
-  // была причина "отправляется только с N-й попытки". Теперь до auth_ok
-  // сообщение ставится в очередь и уходит сразу после подтверждения.
   if (!_socketAuthed) {
     _pendingGlobalMsgs.push(msg);
     return;
@@ -1662,17 +1579,12 @@ function applySettings() {
   document.documentElement.style.setProperty('--board-dark',  s.boardDark  || '#b58863');
 }
 
-// ─── ПРОФИЛЬ: мёртвый блок УДАЛЁН (_profileShow, _initProfileTabs,
-// _drawProfileRatingChart, _buildRatingTable, _openGameFromProfile) —
-// роут pages['profile'] редиректит на отдельную страницу /profile/:username,
-// эти функции ниоткуда не вызываются (просмотр профиля — public/profile.html).
 
 // ──────────────────────────────────────────────────────────────
 //  Emoji picker (настройки)
 // ──────────────────────────────────────────────────────────────
 
 // Массив EMOJIS вынесен в общий /js/emojis.js (4.2); в index.html он
-// подключён раньше app.js. Канон совпадает с серверным PROFILE_EMOJIS.
 
 function openEmojiPicker() {
   const grid = document.getElementById('emoji-grid');
@@ -1727,8 +1639,6 @@ async function selectEmoji(emoji) {
   }
 }
 
-// Мёртвый блок профиля УДАЛЁН (renderProfileUI, loadProfileGames) —
-// см. комментарий выше: профиль живёт на отдельной странице.
 
 pages['profile'] = () => {
   if (currentUser && currentUser.username) {
@@ -1751,12 +1661,9 @@ pages['home'] = () => {
 // ─── АНАЛИЗ ───────────────────────────────────────────────────
 let _loadingGameIntoAnalysis = false;
 
-// Единственный хук страницы анализа (раньше stockfish-ui.js перезаписывал его
-// и сбрасывал доску на стартовую позицию — issue #23).
 pages['analysis'] = () => {
   if (!StockfishAnalyzer.isReady()) StockfishAnalyzer.init();
 
-  // 1) Позиция, переданная из редактора доски (issue #23)
   let pendingFen = null;
   try { pendingFen = sessionStorage.getItem('ch_analysis_fen'); } catch (e) {}
   if (pendingFen) {
@@ -1788,7 +1695,6 @@ pages['analysis'] = () => {
   chessBoard.loadAnalysis();
 };
 
-// Загружает произвольную позицию по FEN и сразу запускает движок (issue #23)
 function loadAnalysisFENFrom(fen) {
   if (!fen || typeof fen !== 'string') return;
   if (!isValidAnalysisFEN(fen)) {
@@ -1813,8 +1719,6 @@ function isValidAnalysisFEN(fen) {
   } catch (e) { return false; }
 }
 
-// «Анализировать» со страницы партии / из модалки результата (issue #23):
-// снимаем ходы текущей партии и открываем анализ именно с ними.
 function analyzeCurrentGame() {
   let moves = [];
   try {
@@ -1841,10 +1745,6 @@ function loadGameIntoAnalysis(game) {
 }
 
 // ─── ПРОЧЕЕ ───────────────────────────────────────────────────
-// escapeHtml удалена (P0, унификация): единственная реализация живёт в
-// /js/utils.js и подключается из index.html до app.js. Старая версия
-// экранировала только &<>, не трогая кавычки ' и " — в атрибутах тегов
-// через них можно было вырваться (например, в data-user="@...").
 
 function setBoardTheme(light, dark) {
   document.documentElement.style.setProperty('--board-light', light);
@@ -1891,7 +1791,6 @@ function loadPGN() {
     toast(`PGN загружен: ${tokens.length} ходов`, 'success');
   } catch(e) { toast('Ошибка загрузки PGN', 'error'); console.error(e); }
 }
-
 
 
 // ─── РЕПОРТЫ ──────────────────────────────────────────────────
@@ -2322,6 +2221,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   applySettings();
 
+  // Фолбэк CH.openAuthModal со страниц без своей модалки (DRY-авторизация):
+  // /#login или /#register — открываем соответствующую модалку на главной.
+  const authHash = (location.hash || '').replace('#', '');
+  if (authHash === 'login' || authHash === 'register') {
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => { if (window.CH) CH.openAuthModal(authHash); }, 300);
+  }
+
   // Регистрируем puzzle страницы ДО showPage
   pages['puzzles'] = () => {
   loadPuzzlesPage();
@@ -2346,10 +2253,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }, 150);
 };
   pages['puzzle-topic']       = () => {};
-  // F5-restore (issue, исправлено): раньше хендлер был пуст — после
-  // перезагрузки страницы на /puzzle-solve задача терялась (она жила только
-  // в памяти), и пользователь видел пустую рамку доски с неактивными
-  // кнопками. Теперь восстанавливаем задачу из sessionStorage.
   pages['puzzle-solve']       = () => {
     if (pz.puzzle && pz.board && pz.board.length) {
       setTimeout(() => pzRender(), 50);
@@ -2408,7 +2311,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
 
-
   document.querySelectorAll('[data-page]').forEach(el => {
     el.addEventListener('click', e => { e.preventDefault(); showPage(el.dataset.page); });
   });
@@ -2447,7 +2349,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch(e) { console.warn('ch_launch_game parse error', e); }
 
-  setInterval(fetchOnline, 10000);
+  setInterval(() => {
+    if (document.hidden) return;
+    if (socket && socket.connected) {
+      // Список онлайн-пользователей обновляем только если открыт модал
+      const modal = document.getElementById('modal-online-users');
+      if (!modal || modal.style.display === 'none') return;
+    }
+    fetchOnline();
+  }, 10000);
 });
 // ══════════════════════════════════════════════════════════════
 //  PUZZLE MODULE
@@ -2711,11 +2621,6 @@ async function pzDoMove(from, to, promoChoice) {
       pz._failed = true;
       const fb = document.getElementById('puzzle-feedback');
       if (fb) { fb.style.display = 'block'; fb.className = 'puzzle-feedback wrong'; fb.textContent = chT('puzzles.feedback_wrong', '✗ Неверно — попробуй ещё раз'); }
-      // Фиксируем поражение. БАГ (исправлен): раньше шло { correct: false }
-      // без ходов — сервер после защиты от накрутки рейтинга (issue M3) требует
-      // массив moves и отвечал 400 "Не указаны ходы решения". Шлём ПОЛНУЮ
-      // историю ходов (ходы игрока + автоматические ответы соперника):
-      // сервер сравнивает чётные позиции (ходы игрока) с эталоном.
       apiPost('/puzzles/' + pz.puzzle.id + '/attempt', { moves: pz._history.map(h => h.label) }).then(data => {
         // Показываем изменение рейтинга если есть
         if (data && data.ratingDelta && data.ratingDelta < 0) {
@@ -2769,8 +2674,6 @@ async function pzDoMove(from, to, promoChoice) {
     pz._moveIndex = (pz._moveIndex || 0) + 1;
 
     if (res.finished) {
-      // БАГ (исправлен): раньше шло { correct: true } без ходов — сервер
-      // отвечал 400 "Не указаны ходы решения", рейтинг за задачи не начислялся.
       const data = await apiPost('/puzzles/' + pz.puzzle.id + '/attempt', { moves: pz._history.map(h => h.label) });
       pzShowSuccess(data);
       return;

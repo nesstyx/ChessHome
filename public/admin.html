@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Панель Admin — Chess Home</title>
@@ -358,7 +359,6 @@
   </div>
 </div>
 
-<div id="toast-container"></div>
 <script>
 const API='/api';let currentUser=null;
 // Токен авторизации больше не хранится в localStorage — он живёт только
@@ -366,18 +366,11 @@ const API='/api';let currentUser=null;
 // escapeHtml (P0, унификация): общая реализация в /js/utils.js
 function getSettings(){try{return JSON.parse(localStorage.getItem('ch_settings')||'{}');}catch{return{};}}
 function applySettings(){const s=getSettings();if(s.boardLight)document.documentElement.style.setProperty('--board-light',s.boardLight);if(s.boardDark)document.documentElement.style.setProperty('--board-dark',s.boardDark);}
-async function safeJson(res){
-  // Если сервер вместо JSON вернул HTML (например, страницу ошибки 404/502
-  // от прокси/хостинга), res.json() падает с криптичным
-  // "JSON.parse: unexpected character at line 1 column 1" — вместо этого
-  // показываем понятную ошибку с кодом статуса.
-  try { return await res.json(); }
-  catch { throw new Error('Сервер вернул некорректный ответ (код ' + res.status + '). Попробуйте ещё раз.'); }
-}
+// safeJson() — глобальная, из /js/utils.js
 async function apiGet(path){const res=await fetch(API+path,{credentials:'same-origin'});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
 async function apiPost(path,body){const res=await fetch(API+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
 async function apiPatch(path,body){const res=await fetch(API+path,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
-function toast(msg,type='info'){const c=document.getElementById('toast-container');const el=document.createElement('div');el.className='toast '+type;el.textContent=msg;c.appendChild(el);setTimeout(()=>el.remove(),3000);}
+// toast() — глобальная, из /js/toast.js
 function updateHeaderUI(){
   const el=document.getElementById('header-right');el.innerHTML='';
   if(currentUser){
@@ -744,9 +737,7 @@ function renderUserList(users, container) {
     st.textContent = '★' + u.rating + ' · ' + u.gamesPlayed + ' партий · ' + u.wins + 'W/' + u.losses + 'L';
     info.appendChild(nm); info.appendChild(st); row.appendChild(info);
     const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
-    // VIP-грант: роль 'admin' с сервера (issue #27) либо legacy-ники bootstrap
     const canGrantVip = currentUser && (currentUser.role === 'admin' || ['chesshome','marina64'].includes(currentUser.username.toLowerCase()));
-    // Роль администратора — выдача/снятие в рантайме (issue #27)
     if (u.username !== currentUser.username) {
       if (u.role === 'admin') {
         const ra = document.createElement('button'); ra.className='btn btn-ghost btn-sm'; ra.title='Снять роль администратора'; ra.textContent='👑 Снять админа';
@@ -871,9 +862,6 @@ function adminSearch(q) {
   }, 250);
 }
 
-// ─── ПРЕДУПРЕЖДЕНИЯ ───────────────────────────────────────────
-// Выбираешь причину из шаблона (текст можно поправить) — игроку придёт личное
-// сообщение от имени «Система». preferKey — какой шаблон выбрать сразу.
 async function openWarnDialog(username, preferKey, onDone) {
   let templates = [], hist = { count: 0, warnings: [] };
   try {
@@ -1181,9 +1169,6 @@ async function loadReports(status) {
         reviewBtn.onclick = async () => {
           reviewBtn.disabled = true;
           try {
-            // Раньше здесь был PATCH — на некоторых хостингах/прокси этот метод
-            // блокируется, из-за чего сервер отвечал HTML-страницей ошибки, а не
-            // JSON, и res.json() падал. POST-эндпоинт работает надёжно.
             await apiPost('/admin/reports/' + r.id + '/status', { status: 'reviewed' });
             toast('Статус обновлён', 'success');
             loadReports(status);

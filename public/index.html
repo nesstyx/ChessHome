@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
 <script src="/js/emojis.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1639,7 +1640,6 @@
 <!--------------------------------------------------------------------------------------------------------------->
 
 
-
 <!---------------------------------------ГЛАВНАЯ СТРАНИЦА------------------------------------------------------------------>
 
 <div id="page-app">
@@ -1676,7 +1676,7 @@
     </div>
 
     <div class="features" style="padding-top:0">
-      <h2 class="section-title" data-i18n-html="home.features_title">Почему <span>Chess Home</span>?</h2>
+      <h2 class="section-title" data-i18n="home.features_title" data-i18n-html="home.features_title">Почему <span>Chess Home</span>?</h2>
       <div class="features-grid">
         <div class="feature-card">
           <span class="feature-icon">⚡</span>
@@ -1712,7 +1712,7 @@
     </div>
 
     <div style="width:100%;max-width:1200px;margin:0 auto;padding:0 24px 60px">
-      <h2 class="section-title" data-i18n-html="home.chat_title">Живой <span>чат</span></h2>
+      <h2 class="section-title" data-i18n="home.chat_title" data-i18n-html="home.chat_title">Живой <span>чат</span></h2>
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow)">
 
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
@@ -1739,7 +1739,7 @@
     </div>
 
     <div class="game-modes">
-      <h2 class="section-title" data-i18n-html="home.modes_title">Выбери <span>режим</span></h2>
+      <h2 class="section-title" data-i18n="home.modes_title" data-i18n-html="home.modes_title">Выбери <span>режим</span></h2>
       <div class="modes-grid">
         <div class="mode-card" onclick="showPage('lobby')">
           <div class="mode-icon">⚔️</div>
@@ -3150,7 +3150,6 @@
     // время (~30fps вместо 60) или блок сейчас не виден на экране/
     // вкладка свёрнута — тогда просто не считаем и не рисуем ничего.
     // На ПК (isMobile === false) это условие всегда ложно, и tick()
-    // работает ровно как раньше.
     if (isMobile) {
       if (!heroVisible || document.hidden) return;
       if (now - lastFrameAt < MOBILE_MIN_FRAME_MS) return;
@@ -3362,7 +3361,6 @@
 })();
 
 
-
 </script>
 
 <script src="/js/ping-widget.js"></script>
@@ -3371,13 +3369,7 @@
      входа мини-игры — storm.html со встроенным скриптом). -->
 
 
-
 <script>
-// Принудительный reload при первом визите УДАЛЁН (баг #44): второй хак перезагрузки
-// (первый был в app.js pageHardReloaded) рвал сокет и auth при каждом «перезапуске»
-// страницы во время партии — сервер успевал закончить её по времени, и игрок видел
-// «game over» вместо обновления страницы. Кэш актуализируется версионированием
-// /js/*.js?v=BUILD_VERSION на сервере.
 </script>
 <style>
 /* Убиваем все отступы сверху на странице задач */
@@ -3452,7 +3444,6 @@ function closeSecurityAlert() {
   } else {
     // Удаляем из DOM, чтобы не висел в памяти
     overlay.remove();
-    // Тур уже пройден раньше — показываем оповещение о безопасности сразу
     maybeShowSecurityAlert(300);
   }
 })();
@@ -3520,17 +3511,17 @@ function nextOnboardSlide() {
       list.innerHTML = data.map(r => `
         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 16px; border-radius: 8px;">
           <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-            <strong>Нарушитель: <span style="color:#e74c3c">${appealEsc(r.targetUsername)}</span></strong>
+            <strong>Нарушитель: <span style="color:#e74c3c">${escapeHtml(r.targetUsername)}</span></strong>
             <span style="font-size:12px; color:var(--text-muted)">${new Date(r.createdAt).toLocaleString()}</span>
           </div>
-          <div style="font-size:13px; margin-bottom:4px;"><strong>Кто пожаловался:</strong> ${appealEsc(r.reporter)}</div>
-          <div style="font-size:13px; margin-bottom:4px;"><strong>Причина:</strong> ${appealEsc(r.reason)}</div>
+          <div style="font-size:13px; margin-bottom:4px;"><strong>Кто пожаловался:</strong> ${escapeHtml(r.reporter)}</div>
+          <div style="font-size:13px; margin-bottom:4px;"><strong>Причина:</strong> ${escapeHtml(r.reason)}</div>
           <div style="font-size:14px; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 4px; margin-bottom: 12px; word-wrap: break-word;">
-            ${appealEsc(r.details)}
+            ${escapeHtml(r.details)}
           </div>
           ${r.status === 'new' 
             ? `<button class="btn btn-secondary btn-sm" onclick="closeReport('${r.id}')">Пометить как "Проверено"</button>` 
-            : `<span style="color:#2ecc71; font-size:13px;">Проверено администратором: ${appealEsc(r.reviewedBy)}</span>`
+            : `<span style="color:#2ecc71; font-size:13px;">Проверено администратором: ${escapeHtml(r.reviewedBy)}</span>`
           }
         </div>
       `).join('');
@@ -3567,282 +3558,6 @@ function nextOnboardSlide() {
   // ══════════════════════════════════════════════════════════
   const APPEAL_REASON_LABELS = { ban: '🚫 Обжалование бана', cheater: '🤖 Проиграл читеру', rating: '📈 Вопрос по рейтингу', other: '❓ Другое' };
 
-  function appealEsc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function(m) {
-      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m];
-    });
-  }
-
-  function appealStatusPill(a) {
-    if (a.status === 'closed') return '<span class="appeal-status-pill st-closed">🔒 Закрыто</span>';
-    if (a.awaiting === 'admin') return '<span class="appeal-status-pill st-wait-admin">⏳ Ожидает ответа администратора</span>';
-    return '<span class="appeal-status-pill st-wait-user">✉️ Ожидает вашего ответа</span>';
-  }
-
-  function goToAppealPage() {
-    showPage('appeal');
-    loadMyAppeals();
-  }
-
-  async function loadMyAppeals() {
-    const authBlock = document.getElementById('appeal-auth-required');
-    const content = document.getElementById('appeal-content');
-    if (!authBlock || !content) return;
-
-    let me = null;
-    try {
-      const meRes = await fetch('/api/me', { credentials: 'same-origin' });
-      if (meRes.ok) me = await meRes.json();
-    } catch {}
-
-    if (!me) { authBlock.style.display = ''; content.style.display = 'none'; return; }
-    authBlock.style.display = 'none';
-    content.style.display = '';
-
-    const list = document.getElementById('appeal-mine-list');
-    const countEl = document.getElementById('appeal-mine-count');
-    const newWrap = document.getElementById('appeal-new-wrap');
-    const openNotice = document.getElementById('appeal-open-notice');
-    list.innerHTML = '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
-    try {
-      const res = await fetch('/api/appeals/mine', { credentials: 'same-origin' });
-      const appeals = await res.json();
-      if (!res.ok) throw new Error((appeals && appeals.error) || 'Ошибка загрузки');
-      if (countEl) countEl.textContent = '(' + appeals.length + ')';
-
-      const hasOpen = appeals.some(a => a.status === 'open');
-      newWrap.style.display = hasOpen ? 'none' : '';
-      openNotice.style.display = hasOpen ? '' : 'none';
-
-      if (!appeals.length) {
-        list.innerHTML = '<div class="empty-state">У вас пока нет обращений</div>';
-        return;
-      }
-
-      list.innerHTML = appeals.map(a => `
-        <div class="appeal-item" id="appeal-item-${a.id}">
-          <button class="appeal-item-head" onclick="toggleAppealItem('${a.id}')">
-            <div class="appeal-item-head-left">
-              <span class="appeal-item-reason">${appealEsc(APPEAL_REASON_LABELS[a.reason] || a.reason)}</span>
-              <span class="appeal-item-date">${new Date(a.createdAt).toLocaleString('ru')}</span>
-            </div>
-            ${appealStatusPill(a)}
-          </button>
-          <div class="appeal-item-body">
-            <div class="appeal-thread">
-              ${a.messages.map(m => `
-                <div class="appeal-msg ${m.isAdmin ? 'from-admin' : 'from-user'}">
-                  <div class="appeal-msg-meta">${m.isAdmin ? '🛡 Администратор' : 'Вы'} · ${new Date(m.createdAt).toLocaleString('ru')}</div>
-                  <div>${appealEsc(m.message)}</div>
-                </div>
-              `).join('')}
-              ${a.status === 'closed'
-                ? '<div class="appeal-locked-note">Обращение закрыто администратором</div>'
-                : a.awaiting === 'user'
-                  ? `<div class="appeal-reply-box">
-                       <textarea id="appeal-reply-${a.id}" maxlength="1000" placeholder="Ваш ответ..."></textarea>
-                       <button class="btn btn-primary" onclick="replyToAppeal('${a.id}')">Отправить</button>
-                     </div>`
-                  : '<div class="appeal-locked-note">⏳ Дождитесь ответа администратора — пока писать нельзя</div>'
-              }
-            </div>
-          </div>
-        </div>
-      `).join('');
-    } catch(e) {
-      list.innerHTML = '<div style="color:var(--red)">Ошибка загрузки: ' + appealEsc(e.message) + '</div>';
-    }
-  }
-
-  function toggleAppealItem(id) {
-    document.getElementById('appeal-item-' + id)?.classList.toggle('open');
-  }
-
-  function appealNotify(msg, type) {
-    if (typeof toast === 'function') toast(msg, type);
-    else if (type === 'error') alert(msg);
-  }
-
-  async function submitAppeal() {
-    const reason = document.getElementById('appeal-reason-select').value;
-    const msgEl = document.getElementById('appeal-new-message');
-    const message = (msgEl.value || '').trim();
-    const btn = document.getElementById('appeal-submit-btn');
-    if (!message) { appealNotify('Напишите сообщение', 'error'); return; }
-    btn.disabled = true;
-    try {
-      const res = await fetch('/api/appeals', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, message })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка');
-      msgEl.value = '';
-      appealNotify('Обращение отправлено', 'success');
-      loadMyAppeals();
-    } catch(e) {
-      appealNotify(e.message, 'error');
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function replyToAppeal(id) {
-    const el = document.getElementById('appeal-reply-' + id);
-    const message = (el.value || '').trim();
-    if (!message) return;
-    try {
-      const res = await fetch(`/api/appeals/${id}/reply`, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка');
-      loadMyAppeals();
-    } catch(e) {
-      appealNotify(e.message, 'error');
-    }
-  }
-
-  // Автозагрузка при прямом переходе по ссылке /appeal
-  if (location.pathname.replace(/\/$/, '') === '/appeal') {
-    document.addEventListener('DOMContentLoaded', () => {
-      if (typeof showPage === 'function') showPage('appeal');
-      loadMyAppeals();
-    });
-  }
-</script>
-
-<script>
-  // ══════════════════════════════════════════════════════════
-  // АДМИНКА: ОБРАЩЕНИЯ (ТИКЕТЫ)
-  // ══════════════════════════════════════════════════════════
-  let currentAppealDetailId = null;
-
-  async function loadAdminAppeals(statusFilter = 'open') {
-    const list = document.getElementById('admin-appeals-list');
-    const countEl = document.getElementById('admin-appeals-count');
-    list.innerHTML = '<div class="spinner" style="margin:0 auto"></div>';
-    try {
-      const res = await fetch(`/api/admin/appeals${statusFilter ? '?status=' + statusFilter : ''}`, { credentials: 'same-origin' });
-      const data = await res.json();
-      if (!res.ok) { list.innerHTML = `<div style="color:var(--red)">${appealEsc(data.error || 'Ошибка')}</div>`; return; }
-      if (countEl) countEl.textContent = '(' + data.length + ')';
-      if (!data.length) { list.innerHTML = '<div class="empty-state">Обращений нет 🎉</div>'; return; }
-
-      list.innerHTML = data.map(a => `
-        <div class="admin-appeal-row" onclick="openAppealDetail('${a.id}')">
-          <span class="aa-user" onclick="event.stopPropagation();window.open('/profile/${encodeURIComponent(a.username)}','_blank')">${appealEsc(a.username)}</span>
-          <span class="aa-reason">${appealEsc(APPEAL_REASON_LABELS[a.reason] || a.reason)}</span>
-          ${appealStatusPill(a)}
-          <span class="aa-date">${new Date(a.updatedAt).toLocaleString('ru')}</span>
-        </div>
-      `).join('');
-    } catch(e) {
-      list.innerHTML = '<div style="color:var(--red)">Ошибка загрузки</div>';
-    }
-  }
-
-  async function openAppealDetail(id) {
-    currentAppealDetailId = id;
-    openModal('modal-appeal-detail');
-    const threadEl = document.getElementById('appeal-detail-thread');
-    threadEl.innerHTML = '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
-    document.getElementById('appeal-detail-reply-input').value = '';
-    try {
-      const res = await fetch(`/api/admin/appeals/${id}`, { credentials: 'same-origin' });
-      const a = await res.json();
-      if (!res.ok) throw new Error(a.error || 'Ошибка');
-
-      document.getElementById('appeal-detail-title').textContent = '📩 Обращение от ' + a.username;
-      document.getElementById('appeal-detail-sub').textContent =
-        (APPEAL_REASON_LABELS[a.reason] || a.reason) + ' · ' + new Date(a.createdAt).toLocaleString('ru');
-
-      threadEl.innerHTML = a.messages.map(m => `
-        <div class="appeal-msg ${m.isAdmin ? 'from-admin' : 'from-user'}">
-          <div class="appeal-msg-meta">${m.isAdmin ? '🛡 ' + appealEsc(m.author) : appealEsc(m.author)} · ${new Date(m.createdAt).toLocaleString('ru')}</div>
-          <div>${appealEsc(m.message)}</div>
-        </div>
-      `).join('');
-      threadEl.scrollTop = threadEl.scrollHeight;
-
-      const closedNote = document.getElementById('appeal-detail-closed-note');
-      const replyInput  = document.getElementById('appeal-detail-reply-input');
-      const replyBtn    = document.getElementById('appeal-detail-reply-btn');
-      const closeBtn    = document.getElementById('appeal-detail-close-btn');
-      const reopenBtn   = document.getElementById('appeal-detail-reopen-btn');
-
-      if (a.status === 'closed') {
-        closedNote.style.display = '';
-        replyInput.disabled = true; replyBtn.disabled = true;
-        closeBtn.style.display = 'none'; reopenBtn.style.display = '';
-      } else {
-        closedNote.style.display = 'none';
-        replyInput.disabled = false; replyBtn.disabled = false;
-        closeBtn.style.display = ''; reopenBtn.style.display = 'none';
-      }
-    } catch(e) {
-      threadEl.innerHTML = '<div style="color:var(--red)">Ошибка: ' + appealEsc(e.message) + '</div>';
-    }
-  }
-
-  async function adminReplyAppeal() {
-    if (!currentAppealDetailId) return;
-    const input = document.getElementById('appeal-detail-reply-input');
-    const message = (input.value || '').trim();
-    if (!message) return;
-    const btn = document.getElementById('appeal-detail-reply-btn');
-    btn.disabled = true;
-    try {
-      const res = await fetch(`/api/admin/appeals/${currentAppealDetailId}/reply`, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка');
-      input.value = '';
-      await openAppealDetail(currentAppealDetailId);
-      loadAdminAppeals('open');
-    } catch(e) {
-      alert('Ошибка: ' + e.message);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function setAppealStatus(status) {
-    if (!currentAppealDetailId) return;
-    if (status === 'closed' && !confirm('Закрыть обращение?')) return;
-    try {
-      const res = await fetch(`/api/admin/appeals/${currentAppealDetailId}`, {
-        method: 'PATCH', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка');
-      await openAppealDetail(currentAppealDetailId);
-      loadAdminAppeals('open');
-    } catch(e) {
-      alert('Ошибка: ' + e.message);
-    }
-  }
-</script>
-
-
-<script>
-// ══════════════════════════════════════════════════════════
-// FAQ — аккордеон, категории, поиск
-// ══════════════════════════════════════════════════════════
-function toggleFaq(btn) {
-  const item = btn.closest('.faq-item');
-  const wasOpen = item.classList.contains('open');
-  // закрываем остальные для аккуратности (можно оставить несколько открытыми)
-  item.classList.toggle('open', !wasOpen);
-}
 
 let _faqCurrentCat = 'all';
 

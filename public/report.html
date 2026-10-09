@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script src="/js/utils.js"></script>
+  <script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="report.page_title">Пожаловаться на игрока — Chess Home</title>
@@ -111,12 +113,6 @@
   <script src="/js/header.js"></script>
   <script>
     // Инициализация при загрузке.
-    // Раньше здесь только вызывался CH.initHeader(), а данные о пользователе
-    // хедер должен был получить сам — но авторизация теперь идёт через
-    // HttpOnly-cookie, и хедеру нужно явно передать текущего пользователя,
-    // иначе он остаётся в состоянии "гость" (кнопки Вход/Регистрация),
-    // даже если сессия по факту валидна (как и было видно на этой странице).
-    // Перевод для динамических строк (alert, текст кнопки). i18n.js подгружает header.js сам.
     const T = (key) => (window.CH_I18N ? CH_I18N.t(key) : key);
     function i18nReady() {
       return new Promise(resolve => {
@@ -135,8 +131,8 @@
       } catch {
         CH.setCurrentUser(null);
         await i18nReady();
-        alert(T('report.login_required'));
-        window.location.href = '/';
+        toast(T('report.login_required'), 'error');
+        setTimeout(() => { window.location.href = '/'; }, 1500);
       }
     });
   </script>
@@ -217,18 +213,19 @@
           body: JSON.stringify({ targetUsername, reason, details })
         });
 
-        const data = await res.json();
+        const data = await safeJson(res);
         
         if (data.error) {
-          alert(T('report.error_prefix') + ' ' + data.error);
+          toast(T('report.error_prefix') + ' ' + data.error, 'error');
           btn.disabled = false;
           btn.innerText = T('report.submit');
         } else {
+          toast(T('report.success_title'), 'success');
           document.getElementById('report-form-container').style.display = 'none';
           document.getElementById('success-msg').style.display = 'block';
         }
       } catch (err) {
-        alert(T('report.send_failed'));
+        toast(T('report.send_failed'), 'error');
         btn.disabled = false;
         btn.innerText = T('report.submit');
       }

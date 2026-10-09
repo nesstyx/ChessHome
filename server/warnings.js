@@ -1,14 +1,4 @@
 // ═══════════════════════════════════════════════════════════════
-//  warnings.js — предупреждения игрокам «от имени системы»
-// ═══════════════════════════════════════════════════════════════
-//  Админ выбирает причину из готовых шаблонов (текст можно поправить перед
-//  отправкой) — игроку приходит личное сообщение от «Система», на которое
-//  нельзя ответить (тот же канал, что у «Системных сообщений» в админке).
-//  Шаблоны двуязычные (RU + EN): язык игрока на сервере неизвестен.
-//  Каждое предупреждение пишется в таблицу user_warnings (история) и в
-//  журнал админ-действий. Автоматические предупреждения шлёт BotModerator
-//  (см. botmoderator.js) — они тоже попадают в эту историю.
-// ═══════════════════════════════════════════════════════════════
 
 const {
   app, db, uuidv4,
@@ -50,19 +40,6 @@ function buildText(key, { auto = false } = {}) {
     + (auto ? '\n\nThis is an automatic message. If you think this is a mistake, please contact support.' : '');
   return ru + '\n\n— — —\n\n' + en;
 }
-
-db(`CREATE TABLE IF NOT EXISTS user_warnings (
-  id           TEXT PRIMARY KEY,
-  username     TEXT NOT NULL,
-  username_low TEXT NOT NULL,
-  template     TEXT,
-  text         TEXT NOT NULL,
-  sent_by      TEXT NOT NULL,
-  source       TEXT NOT NULL DEFAULT 'admin',
-  score        INTEGER,
-  created_at   BIGINT NOT NULL
-)`).then(() => db(`CREATE INDEX IF NOT EXISTS idx_user_warnings_user ON user_warnings(username_low, created_at DESC)`))
-   .catch(e => console.error('[Warnings] init:', e.message));
 
 async function countWarnings(low) {
   try { const r = await db('SELECT COUNT(*) AS n FROM user_warnings WHERE username_low=$1', [low]); return Number(r.rows[0].n); }

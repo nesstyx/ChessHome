@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Личные сообщения — Chess Home</title>
@@ -790,7 +791,6 @@
 </div>
 
 <!-- Toast container (DM notifications) -->
-<div id="toast-container"></div>
 
 <!-- ── SCRIPTS ─────────────────────────────────────────────────── -->
 <script src="/socket.io/socket.io.js"></script>
@@ -910,19 +910,7 @@ let pollingTimer = null;
 let convPollingTimer = null;
 
 // ─── TOAST ────────────────────────────────────────────────────
-function toast(msg, type = 'info') {
-  const container = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.innerHTML = `<span>${{success:'✓',error:'✗',info:'ℹ'}[type]||'ℹ'}</span><span>${msg}</span>`;
-  container.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateX(30px)';
-    el.style.transition = '0.3s';
-    setTimeout(() => el.remove(), 300);
-  }, 3000);
-}
+// toast() — глобальная, из /js/toast.js
 
 // ─── DM IN-SITE NOTIFICATION ──────────────────────────────────
 function showDmNotif(fromUsername, preview) {
@@ -1228,7 +1216,7 @@ async function openConversation(partner) {
 
   // Start polling for new messages
   clearInterval(pollingTimer);
-  pollingTimer = setInterval(() => pollMessages(partner), 4000);
+  pollingTimer = setInterval(() => { if (!document.hidden) pollMessages(partner); }, 4000);
 }
 
 function buildChatUI(partner, data) {
@@ -1308,7 +1296,6 @@ function renderMessages() {
 
     const wrap = document.createElement('div');
 
-    // Цитата (issue #56): если сообщение — ответ, показываем цитируемый текст
     if (msg.replyTo) {
       const quote = document.createElement('div');
       quote.className = 'msg-quote';
@@ -1327,7 +1314,6 @@ function renderMessages() {
     time.className = 'msg-time';
     time.textContent = formatTime(msg.ts);
 
-    // Кнопка «Ответить» (issue #56) — не для своих и не для системных
     if (!isMine && !isSystemPartner(msg.from)) {
       const actions = document.createElement('div');
       actions.style.cssText = 'margin-top:2px;opacity:0;transition:opacity .15s;font-size:12px';
@@ -1350,7 +1336,6 @@ function renderMessages() {
   });
 }
 
-// ─── REPLY TO MESSAGE (issue #56) ────────────────────────────
 let _replyToMsg = null;
 function startDmReply(msg) {
   _replyToMsg = { id: msg.id, from: msg.from, text: msg.text };
@@ -1394,7 +1379,6 @@ function appendMessageToChat(msg, isMine) {
   av.textContent = isSystemPartner(msg.from) ? '📢' : msg.from[0].toUpperCase();
 
   const wrap = document.createElement('div');
-  // Цитата (issue #56)
   if (msg.replyTo) {
     const quote = document.createElement('div');
     quote.className = 'msg-quote';
@@ -1688,9 +1672,8 @@ async function init() {
     await loadConversations();
     handleUrlRoute();
 
-    // Polling timers
-    setInterval(pollOnline, 8000);
-    setInterval(pollConversations, 5000);
+    setInterval(() => { if (!document.hidden) pollOnline(); }, 8000);
+    setInterval(() => { if (!document.hidden) pollConversations(); }, 5000);
     pollOnline();
   } else {
     renderNotLogged();
@@ -1709,7 +1692,6 @@ window.openDMWith = function(username) {
 </script>
 
 <script src="/js/online-widget.js"></script>
-
 
 
 </body>

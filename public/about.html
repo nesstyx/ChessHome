@@ -113,9 +113,6 @@ function updateHeaderUI() {
 document.addEventListener('click',e=>{if(!e.target.closest('.user-menu'))document.getElementById('hdr-drop')?.classList.remove('open');});
 async function initHeader() {
   CH.initHeader();
-  // Раньше юзернейм доставали из JWT в localStorage. Токен теперь в HttpOnly-cookie
-  // и недоступен из JS, поэтому просто спрашиваем у сервера, кто мы — /api/me
-  // сам читает cookie и возвращает текущего пользователя (или 401, если гость).
   try {
     currentUser = await apiGet('/me');
   } catch {

@@ -499,10 +499,6 @@ fetch('/games/chess-pursuit/index.html', { method: 'HEAD' })
 })();
 
 // ── HEADER AUTH ──
-// Раньше здесь использовались authToken/apiGet/updateHeaderUI из localStorage —
-// но они нигде в этом файле не объявлены (полагались на глобалы из header.js),
-// и в любом случае токен в localStorage больше не хранится (он в HttpOnly-cookie).
-// Делаем страницу независимой: спрашиваем /api/me напрямую и отдаём результат в CH.
 async function initHeader() {
   CH.initHeader();
   try {
@@ -514,8 +510,6 @@ async function initHeader() {
   }
 }
 
-// 5.4: loadOnline() УДАЛЕНА — на странице 404 нет элемента #online-count,
-// таймер каждые 15 секунд делал заведомо холостые запросы.
 
 initHeader();
 </script>

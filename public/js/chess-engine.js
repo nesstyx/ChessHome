@@ -1,25 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 //  Chess Home — Шахматная логика НА chess.js
 // ════════════════════════════════════════════════════════════════
-//  Раньше здесь был самописный движок (генерация ходов, шахи, мат,
-//  рокировки, взятие на проходе, FEN/SAN/PGN — ~500 строк). Теперь
-//  ВСЯ правила шахмат реализует библиотека chess.js (глобальный
-//  объект Chess из /js/vendor/chess.js), а этот файл — тонкий
-//  адаптер, который сохраняет прежний API ChessEngine.* для
-//  board.js / app.js / editor.js / opening-board.js / tv.js,
-//  чтобы ничего из них не пришлось переписывать.
-//
-//  Формат состояния (совместим со старым движком):
-//    state.board   — Array(64), клетка: null | {type:'K'.., color:'w'|'b'}
-//    state.turn    — 'w' | 'b'
-//    state.castling— {K,Q,k,q}
-//    state.enPassant — индекс клетки взятия на проходе | null
-//    state.halfmove, state.fullmove — счётчики
-//    state.history — [{from,to,piece,captured,promotion,fen,san}]
-//    state.capturedWhite / capturedBlack — взятые фигуры
-//  Ходы: {from: 0..63, to: 0..63, promotion?: 'Q'|'R'|'B'|'N',
-//         castle?: 'K'|'Q', enPassant?: true, doublePush?: true}
-// ════════════════════════════════════════════════════════════════
 
 const ChessEngine = (() => {
 

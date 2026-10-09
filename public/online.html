@@ -587,7 +587,7 @@ function render() {
 
     return `
       <div class="player-card${rankClass}" style="animation-delay:${Math.min(i * 40, 400)}ms"
-           onclick="goProfile('${escH(u.username)}')">
+           onclick="goProfile('${escapeHtml(u.username)}')">
         <span class="player-pos ${posClass}">${pos <= 3 ? ['🥇','🥈','🥉'][pos-1] : pos}</span>
 
         <div class="player-avatar">
@@ -597,7 +597,7 @@ function render() {
         </div>
 
         <div class="player-info">
-          <div class="player-name">${escH(u.username)}${u.vip ? ' <img src="/img/vip.png" class="vip-badge" alt="VIP" title="VIP-игрок">' : ''}${isMe ? ' <span style="font-size:11px;color:var(--accent)">(вы)</span>' : ''}</div>
+          <div class="player-name">${escapeHtml(u.username)}${u.vip ? ' <img src="/img/vip.png" class="vip-badge" alt="VIP" title="VIP-игрок">' : ''}${isMe ? ' <span style="font-size:11px;color:var(--accent)">(вы)</span>' : ''}</div>
           <div class="player-stats">
             ${sortMode !== 'rating' ? `<span class="player-stat">⭐ <span class="stat-val">${rating}</span></span>` : ''}
             ${sortMode !== 'games'  ? `<span class="player-stat">♟ <span class="stat-val">${games}</span></span>` : ''}
@@ -612,7 +612,7 @@ function render() {
           </div>
           ${!isMe ? `
           <button class="card-msg-btn"
-                  onclick="event.stopPropagation(); writeTo('${escH(u.username)}')"
+                  onclick="event.stopPropagation(); writeTo('${escapeHtml(u.username)}')"
                   title="Написать сообщение">
             ✉️
           </button>` : ''}
@@ -654,7 +654,7 @@ function writeTo(username) {
   window.location.href = '/inbox/' + encodeURIComponent(username);
 }
 
-function escH(s) {
+function escapeHtml(s) {
   return String(s)
     .replace(/&/g,'&amp;')
     .replace(/</g,'&lt;')

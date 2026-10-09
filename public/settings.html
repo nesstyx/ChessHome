@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="settings.page_title">Настройки — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
+  <script src="/js/utils.js"></script>
+  <script src="/js/toast.js"></script>
   <script src="/js/header.js"></script>
   <script src="/js/i18n.js"></script>
   <script src="/js/emojis.js"></script>
@@ -188,7 +190,6 @@
   </div>
 </div>
 
-<div id="toast-container"></div>
 
 <script>
 const API = '/api';
@@ -196,14 +197,7 @@ let currentUser = null;
 // Токен — в HttpOnly-cookie ch_token, JS её не видит и не должен;
 // браузер сам прикладывает её к запросам на тот же origin.
 
-function toast(msg, type='info') {
-  const c = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.innerHTML = '<span>' + ({success:'✓',error:'✗',info:'ℹ'}[type]||'ℹ') + '</span><span>' + msg + '</span>';
-  c.appendChild(el);
-  setTimeout(() => { el.style.opacity='0'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); }, 3000);
-}
+// toast() — глобальная, из /js/toast.js
 
 // ── Язык ──────────────────────────────────────────────────────
 async function setLang(lang) {
@@ -259,8 +253,6 @@ function setBoardTheme(light, dark) {
 }
 
 // ── Эмодзи: массив EMOJIS вынесен в общий /js/emojis.js (4.2) ──
-// Локальная копия удалена — за канон взят именно этот список
-// (полностью совпадает с серверным PROFILE_EMOJIS).
 
 
 function closeModalEmoji() {
