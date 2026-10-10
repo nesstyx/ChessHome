@@ -243,86 +243,6 @@
   .onboard-footer { padding: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 }
 
-/* ══════════════════════════════════════════════════════
-   ОПОВЕЩЕНИЕ ОБ ОБНОВЛЕНИИ БЕЗОПАСНОСТИ (JWT)
-══════════════════════════════════════════════════════ */
-#ch-security-alert {
-  position: fixed;
-  inset: 0;
-  z-index: 999998;
-  background: rgba(15, 15, 20, 0.95);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-  font-family: var(--font-sans, sans-serif);
-}
-#ch-security-alert.active {
-  opacity: 1;
-  pointer-events: all;
-}
-@media (min-width: 769px) {
-  #ch-security-alert.active {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
-}
-.security-alert-container {
-  position: relative;
-  z-index: 10;
-  width: min(90vw, 460px);
-  height: auto;
-  max-height: 85vh;
-  overflow-y: auto;
-  background: linear-gradient(145deg, rgba(30,30,46,0.9), rgba(20,20,30,0.95));
-  border: 1px solid rgba(201, 168, 76, 0.3);
-  border-radius: 24px;
-  box-shadow: 0 25px 80px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(255,255,255,0.05);
-  display: flex;
-  flex-direction: column;
-  transform: translateY(40px) scale(0.95);
-  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-#ch-security-alert.active .security-alert-container {
-  transform: translateY(0) scale(1);
-}
-.security-alert-body {
-  padding: 36px 30px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-.security-alert-icon {
-  font-size: 56px;
-  margin-bottom: 20px;
-  filter: drop-shadow(0 10px 20px rgba(201, 168, 76, 0.4));
-}
-.security-alert-body h2 {
-  font-size: 24px;
-  font-weight: 800;
-  color: #fff;
-  margin-bottom: 16px;
-  line-height: 1.25;
-  background: linear-gradient(to right, #fff, var(--accent, #c9a84c));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.security-alert-body p {
-  font-size: 15px;
-  line-height: 1.6;
-  color: var(--text-secondary, #a0a0b0);
-  margin-bottom: 0;
-}
-@media (max-width: 480px) {
-  .security-alert-container { width: 92vw; }
-  .security-alert-body { padding: 30px 20px 6px; }
-  .security-alert-icon { font-size: 48px; }
-  .security-alert-body h2 { font-size: 21px; }
-}
     /* ── ПРЕЙМУВ ───────────────────────────────────────────── */
     .square.premove {
       background-color: rgba(255, 120, 0, 0.55) !important;
@@ -1150,6 +1070,83 @@
       50% { opacity: 1; transform: scale(1.04); }
     }
 
+
+    /* ── ФРАЗЫ СВЕРХУ (из /data/chess-thoughts.txt) ───────────────────── */
+    .ch-phrase-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 18px 24px 0;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity .6s ease, transform .6s ease;
+    }
+    .ch-phrase-wrap.ready { opacity: 1; transform: none; }
+    .ch-phrase {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 18px;
+      border-radius: 16px;
+      cursor: pointer;
+      overflow: hidden;
+      background: linear-gradient(120deg, rgba(201,168,76,0.14), rgba(201,168,76,0.03) 55%, rgba(255,255,255,0.02));
+      border: 1px solid rgba(201,168,76,0.28);
+      box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+      transition: border-color .25s, transform .25s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ch-phrase:hover { border-color: rgba(201,168,76,0.55); transform: translateY(-1px); }
+    .ch-phrase::before {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0; left: -40%;
+      width: 30%;
+      background: linear-gradient(100deg, transparent, rgba(255,255,255,0.07), transparent);
+      transform: skewX(-20deg);
+      animation: chPhraseShine 7s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes chPhraseShine { 0%, 60% { left: -40%; } 100% { left: 130%; } }
+    @keyframes chPhraseFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+    .ch-phrase-icon {
+      flex-shrink: 0;
+      font-size: 34px;
+      line-height: 1;
+      color: var(--accent, #c9a84c);
+      filter: drop-shadow(0 4px 10px rgba(201,168,76,0.45));
+      animation: chPhraseFloat 4s ease-in-out infinite;
+    }
+    .ch-phrase-body { min-width: 0; flex: 1; }
+    .ch-phrase-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      color: var(--accent, #c9a84c);
+      opacity: .9;
+      margin-bottom: 5px;
+    }
+    .ch-phrase-text {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-style: italic;
+      font-size: clamp(15px, 1.4vw + 9px, 20px);
+      line-height: 1.45;
+      color: var(--text-primary, #f0f0f5);
+      min-height: 1.45em;
+      transition: opacity .35s ease, transform .35s ease;
+    }
+    .ch-phrase-text::before { content: '«'; color: var(--accent, #c9a84c); }
+    .ch-phrase-text::after  { content: '»'; color: var(--accent, #c9a84c); }
+    .ch-phrase-text.out { opacity: 0; transform: translateY(6px); }
+    @media (max-width: 768px) {
+      .ch-phrase-wrap { padding: 12px 16px 0; }
+      .ch-phrase { padding: 12px 14px; gap: 12px; }
+      .ch-phrase-icon { font-size: 26px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ch-phrase::before, .ch-phrase-icon { animation: none; }
+    }
+
         /* ══ PUZZLE STYLES ══════════════════════════════════════════ */
     .puzzle-topics-grid {
       display: grid;
@@ -1579,19 +1576,6 @@
   </div>
 </div>
 
-<!-- Оповещение об обновлении безопасности (показывается один раз после велком-окна) -->
-<div id="ch-security-alert">
-  <div class="security-alert-container">
-    <div class="security-alert-body">
-      <div class="security-alert-icon">🔐</div>
-      <h2 data-i18n="home.security_alert_title">Мы обновили безопасность</h2>
-      <p data-i18n="home.security_alert_text">Если у вас уже был аккаунт и вы были в него залогинены — пожалуйста, перезайдите заново. Часть функций не будет работать, пока вы не перезайдёте в свой аккаунт: мы серьёзно обновили систему безопасности, в том числе JWT-токен. При нахождении любого бага - пишите нам о нём. Спасибо за понимание!</p>
-    </div>
-    <div class="onboard-footer">
-      <button class="onboard-btn" onclick="closeSecurityAlert()" data-i18n="home.security_alert_btn">Понятно, перезайду</button>
-    </div>
-  </div>
-</div>
 
 <!-- header injected by /js/header.js -->
 
@@ -1624,6 +1608,17 @@
 <div id="page-app">
 
   <div id="page-home" class="page">
+    <!-- Случайная фраза сверху: читается из /data/chess-thoughts.txt (одна фраза = одна строка) -->
+    <div class="ch-phrase-wrap" id="ch-phrase-wrap">
+      <div class="ch-phrase" id="ch-phrase" role="button" tabindex="0" title="Нажми — будет другая мысль">
+        <div class="ch-phrase-icon">♞</div>
+        <div class="ch-phrase-body">
+          <div class="ch-phrase-label" id="ch-phrase-label">✦ Мысль от ChessHome AI</div>
+          <div class="ch-phrase-text" id="ch-phrase-text"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="hero">
       <div class="hero-text">
         <div class="hero-eyebrow" data-i18n="home.hero_eyebrow">♟ Шахматная платформа нового поколения</div>
@@ -2822,60 +2817,11 @@
   // Full games reaching middlegame / endgame
   // ИСПРАВЛЕНО: убраны ходы с пустых клеток, неправильные ходы конём, некорректные рокировки
   const GAME_SEQUENCES = [
-    // Game 1: Бессмертная партия (Андерссен - Кизерицкий, 1851) — Королевский гамбит
-    [m('e2','e4'),m('e7','e5'),m('f2','f4'),m('e5','f4'),
-     m('f1','c4'),m('d8','h4'),m('e1','f1'),m('b7','b5'),
-     m('c4','b5'),m('g8','f6'),m('g1','f3'),m('h4','h6'),
-     m('d2','d3'),m('f6','h5'),m('f3','h4'),m('h6','g5'),
-     m('h4','f5'),m('c7','c6'),m('g2','g4'),m('h5','f6'),
-     m('h1','g1'),m('c6','b5'),m('h2','h4'),m('g5','g6'),
-     m('h4','h5'),m('g6','g5'),m('d1','f3'),m('f6','g8'),
-     m('c1','f4'),m('g5','f6'),m('b1','c3'),m('f8','c5'),
-     m('f4','d6'),m('c5','b6'),m('f5','g7'),m('e8','d8'),
-     m('f3','f6'),m('g8','f6'),m('d6','e7')],
-
-    // Game 2: Испанская партия (Обмен) — упрощённая
-    [m('e2','e4'),m('e7','e5'),m('g1','f3'),m('b8','c6'),
-     m('f1','b5'),m('a7','a6'),m('b5','c6'),m('d7','c6'),
-     m('e1','g1'),m('f7','f6'),m('d2','d4'),m('e5','d4'),
-     m('f3','d4'),m('c6','c5'),m('d4','f5'),m('g7','g6'),
-     m('f5','h6'),m('f8','h6'),m('d1','h5'),m('e8','f8'),
-     m('c1','e3'),m('d8','e7'),m('b1','d2'),m('c8','e6'),
-     m('f1','d1'),m('h8','d8'),m('d1','d8'),m('h6','d2'),
-     m('e3','d2'),m('a8','d8'),m('h5','g6'),m('d8','d2'),
-     m('g6','f6'),m('e7','f6'),m('a2','a4'),m('d2','d4'),
-     m('f2','f3'),m('c5','c4'),m('g1','h2'),m('d4','d2'),
-     m('h2','g3'),m('d2','d3'),m('g3','f4'),m('f6','g7')],
-
-    // Game 3: Сицилианская защита — Найдорф
-    [m('e2','e4'),m('c7','c5'),m('g1','f3'),m('d7','d6'),
-     m('d2','d4'),m('c5','d4'),m('f3','d4'),m('g8','f6'),
-     m('b1','c3'),m('a7','a6'),m('c1','e3'),m('e7','e5'),
-     m('d4','b3'),m('c8','e6'),m('f2','f3'),m('f8','e7'),
-     m('d1','d2'),m('e8','g8'),m('e1','c1'),m('b8','d7'),
-     m('g2','g4'),m('b7','b5'),m('g4','g5'),m('b5','b4'),
-     m('c3','d5'),m('f6','d5'),m('e4','d5'),m('e6','d5'),
-     m('f1','d3'),m('a6','a5'),m('h2','h4'),m('a5','a4'),
-     m('b3','d4'),m('e5','d4'),m('e3','d4'),m('d7','e5'),
-     m('d4','e5'),m('d6','e5'),m('d3','e4'),m('d5','e4'),
-     m('f3','e4'),m('d8','b6'),m('c1','b1'),m('h8','d8'),
-     m('d2','e2'),m('b6','b3'),m('a2','b3'),m('a4','b3')],
-
-    // Game 4: Ферзевый гамбит (правильная рокировка до хода слона)
-    [m('d2','d4'),m('d7','d5'),m('c2','c4'),m('e7','e6'),
-     m('b1','c3'),m('g8','f6'),m('c1','g5'),m('f8','e7'),
-     m('e2','e3'),m('e8','g8'),m('g1','f3'),m('h7','h6'),
-     m('g5','h4'),m('b7','b6'),m('c4','d5'),m('f6','d5'),
-     m('h4','e7'),m('d8','e7'),m('c3','d5'),m('e6','d5'),
-     m('d1','b3'),m('c7','c5'),m('d4','c5'),m('b6','c5'),
-     m('b3','b7'),m('b8','d7'),m('b7','c6'),m('a8','b8'),
-     m('f3','d2'),m('f8','b8'),m('c6','d5'),m('b8','b2'),
-     m('d2','b3'),m('c5','c4'),m('b3','c1'),m('d7','b6'),
-     m('d5','c5'),m('b2','a2'),m('c5','c6'),m('b6','a4'),
-     m('c6','d6'),m('e7','f6'),m('f1','e2'),m('c4','c3'),
-     m('e1','g1'),m('c3','c2'),m('d6','d1'),m('a2','a1'),
-     m('d1','a1'),m('c2','c1'),m('a1','c1'),m('a4','c3'),
-     m('e2','d3'),m('f6','e5')],
+    // 1.e4 e5 2.Qh5 a6 3.Bc4 Nc6 4.Qxf7#  («детский мат»)
+    [m('e2','e4'),m('e7','e5'),
+     m('d1','h5'),m('a7','a6'),
+     m('f1','c4'),m('b8','c6'),
+     m('h5','f7')],
   ];
 
   // Starting position
@@ -3027,39 +2973,51 @@
       drawPiece(anim.piece, cx, cy, sqSize, 1.12);
     }
 
-    // Game Over overlay
+    // Мат: зелёная звезда у белого короля (победитель), красная — у чёрного
     if (gameOverAlpha > 0) {
-      ctx.save();
-      // Dark vignette
-      const grd = ctx.createRadialGradient(size/2, size/2, size*0.15, size/2, size/2, size*0.72);
-      grd.addColorStop(0, `rgba(0,0,0,${0.55 * gameOverAlpha})`);
-      grd.addColorStop(1, `rgba(0,0,0,${0.82 * gameOverAlpha})`);
-      ctx.fillStyle = grd;
-      ctx.fillRect(0, 0, size, size);
-
-      // Panel
-      const pw = size * 0.72, ph = size * 0.28;
-      const px = (size - pw) / 2, py = (size - ph) / 2;
-      ctx.globalAlpha = gameOverAlpha;
-      ctx.fillStyle = 'rgba(20,16,12,0.92)';
-      ctx.strokeStyle = ACCENT;
-      ctx.lineWidth = 2;
-      roundRect(ctx, px, py, pw, ph, 12);
-      ctx.fill();
-      ctx.stroke();
-
-      // Text
-      ctx.fillStyle = ACCENT;
-      ctx.font = `bold ${Math.round(size*0.09)}px serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(LABEL_GAME_OVER, size/2, size/2 - size*0.04);
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.font = `${Math.round(size*0.046)}px sans-serif`;
-      ctx.fillText(LABEL_NEW_GAME, size/2, size/2 + size*0.06);
-      ctx.restore();
+      const wk = board.indexOf('wK'), bk = board.indexOf('bK');
+      if (wk >= 0) drawMateStar(wk, '#5cf08f', '#139a48', gameOverAlpha);
+      if (bk >= 0) drawMateStar(bk, '#ff7a7a', '#b81e26', gameOverAlpha);
     }
+    ctx.restore();
+  }
 
+  function easeOutBack(t) {
+    const c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+
+  // Звезда в правом верхнем углу клетки короля: выскакивает с «отскоком», крутится и пульсирует
+  function drawMateStar(sq, colA, colB, prog) {
+    prog = Math.min(prog, 1);
+    const file = sq % 8, rank = Math.floor(sq / 8);
+    const cx = file * sqSize + sqSize * 0.79;
+    const cy = (7 - rank) * sqSize + sqSize * 0.25;
+    const pulse = 1 + 0.06 * Math.sin(performance.now() / 260);
+    const sc = easeOutBack(prog) * pulse;
+    const R = sqSize * 0.26 * sc, r = R * 0.46;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((1 - prog) * -0.9);
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + i * Math.PI / 5;
+      const rad = (i % 2 === 0) ? R : r;
+      const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, -R, 0, R);
+    g.addColorStop(0, colA);
+    g.addColorStop(1, colB);
+    if (!isMobile) { ctx.shadowColor = colA; ctx.shadowBlur = sqSize * 0.35; }
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = Math.max(1.5, sqSize * 0.035);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -3107,7 +3065,7 @@
   let phaseTimer = 0;
   let moveDuration = 520; // ms per move
   let pauseBetween = 900; // pause ms
-  let gameoverHold = 2200;
+  let gameoverHold = 4500; // звёзды появляются за 0.5 с + держатся 4.5 с ≈ 5 с до сброса
   let fadeTime = 500;
 
   // Подписи на доске рисуются в canvas (data-i18n тут не работает), поэтому
@@ -3276,6 +3234,140 @@
 })();
 </script>
 
+<script>
+// ── СЛУЧАЙНЫЕ ФРАЗЫ СВЕРХУ (RU / EN) ───────────────────────
+(function() {
+  'use strict';
+  // Файлы: одна фраза на строку; строки с # в начале игнорируются.
+  var URLS = { ru: '/data/chess-thoughts.txt', en: '/data/chess-thoughts.en.txt' };
+  var LABELS = { ru: '✦ Мысль от ChessHome AI', en: '✦ A thought from ChessHome AI' };
+  var TITLES = { ru: 'Нажми — будет другая мысль', en: 'Click for another thought' };
+  var ROTATE_MS = 20000; // автосмена фразы
+  var FALLBACK = {
+    ru: [
+      'Каждый гроссмейстер когда-то не знал, как ходит конь.',
+      'Терпение — самая недооценённая фигура на доске.',
+      'Нажми «Играть» — доска сама себя не заматует.'
+    ],
+    en: [
+      "Every grandmaster once didn't know how the knight moves.",
+      'Patience is the most underrated piece on the board.',
+      'Hit "Play" — the board won\'t checkmate itself.'
+    ]
+  };
+
+  var wrap  = document.getElementById('ch-phrase-wrap');
+  var card  = document.getElementById('ch-phrase');
+  var el    = document.getElementById('ch-phrase-text');
+  var label = document.getElementById('ch-phrase-label');
+  if (!wrap || !card || !el) return;
+
+  var lang = null, started = false, booted = false;
+  var phrases = [], queue = [], last = '', timer = null;
+
+  // ── определение языка сайта ──
+  function normLang(v) {
+    if (!v) return null;
+    if (typeof v === 'object') v = v.lang || v.language || v.code || v.locale || '';
+    v = String(v).toLowerCase();
+    if (v.indexOf('en') === 0) return 'en';
+    if (v.indexOf('ru') === 0) return 'ru';
+    return null;
+  }
+  function detectLang(e) {
+    var l = normLang(e && e.detail);
+    if (l) return l;
+    var I = window.CH_I18N;
+    if (I) {
+      l = normLang(typeof I.getLang === 'function' ? I.getLang() : null) ||
+          normLang(I.lang) || normLang(I.currentLang) || normLang(I.locale);
+      if (l) return l;
+    }
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (/lang|locale/i.test(k)) { l = normLang(localStorage.getItem(k)); if (l) return l; }
+      }
+    } catch (err) {}
+    return normLang(document.documentElement.getAttribute('lang')) || 'ru';
+  }
+
+  // ── очередь без повторов ──
+  function refill() {
+    queue = phrases.slice();
+    for (var i = queue.length - 1; i > 0; i--) {   // Фишер—Йейтс
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = queue[i]; queue[i] = queue[j]; queue[j] = t;
+    }
+    if (queue.length > 1 && queue[queue.length - 1] === last) {
+      var tmp = queue[0]; queue[0] = queue[queue.length - 1]; queue[queue.length - 1] = tmp;
+    }
+  }
+  function nextPhrase() {
+    if (!queue.length) refill();
+    last = queue.pop();
+    return last;
+  }
+  function show(animate) {
+    var text = nextPhrase();
+    if (!animate) { el.textContent = text; return; }
+    el.classList.add('out');
+    setTimeout(function() {
+      el.textContent = text;
+      el.classList.remove('out');
+    }, 350);
+  }
+  function restartTimer() {
+    clearInterval(timer);
+    timer = setInterval(function() { if (!document.hidden) show(true); }, ROTATE_MS);
+  }
+  function manualNext() { show(true); restartTimer(); }
+  card.addEventListener('click', manualNext);
+  card.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); manualNext(); }
+  });
+
+  // ── загрузка фраз для языка ──
+  function apply(l, list) {
+    if (l !== lang) return;          // язык уже сменился, пока грузили
+    phrases = list;
+    last = '';
+    refill();
+    show(started);
+    if (!started) {
+      started = true;
+      wrap.classList.add('ready');
+    }
+    restartTimer();
+  }
+  function setup(e) {
+    var l = detectLang(e);
+    if (l === lang && started) return;
+    lang = l;
+    if (label) label.textContent = LABELS[l];
+    card.title = TITLES[l];
+    fetch(URLS[l], { cache: 'no-cache' })
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function(txt) {
+        var list = txt.replace(/^\uFEFF/, '').split(/\r?\n/)
+          .map(function(x) { return x.trim(); })
+          .filter(function(x) { return x && x.charAt(0) !== '#'; });
+        apply(l, list.length ? list : FALLBACK[l]);
+      })
+      .catch(function() { apply(l, FALLBACK[l]); }); // файла нет — запасные фразы
+  }
+
+  function boot() { if (booted) return; booted = true; setup(); }
+  if (window.CH_I18N && typeof CH_I18N.onReady === 'function') {
+    CH_I18N.onReady(boot);
+    setTimeout(boot, 1500);          // на случай, если i18n не отзовётся
+  } else {
+    boot();
+  }
+  document.addEventListener('ch-lang-changed', function(e) { if (booted) setup(e); });
+})();
+</script>
+
 <!-- Модалка выбора эмодзи -->
 <div id="modal-emoji" class="modal-overlay">
   <div class="modal" style="max-width:500px">
@@ -3385,30 +3477,10 @@ function updateRegisterButtonState() {
   btn.style.cursor = allChecked ? 'pointer' : 'not-allowed';
 }
 
-// ── ОПОВЕЩЕНИЕ ОБ ОБНОВЛЕНИИ БЕЗОПАСНОСТИ (JWT) ─────────
-const CH_SECURITY_ALERT_KEY = 'ch_security_notice_jwt_v1';
-
-function maybeShowSecurityAlert(delay) {
-  if (localStorage.getItem(CH_SECURITY_ALERT_KEY)) return;
-  const el = document.getElementById('ch-security-alert');
-  if (!el) return;
-  setTimeout(() => el.classList.add('active'), delay || 300);
-}
-
-function closeSecurityAlert() {
-  const el = document.getElementById('ch-security-alert');
-  localStorage.setItem(CH_SECURITY_ALERT_KEY, 'true'); // Больше не показываем
-  if (!el) return;
-  el.classList.remove('active');
-  setTimeout(() => el.remove(), 600);
-}
-
 // ── ЛОГИКА ОНБОРДИНГА ───────────────────────────────────
 (function() {
   const overlay = document.getElementById('ch-onboarding');
   if (!overlay) {
-    // Онбординга нет на странице — просто проверяем оповещение о безопасности
-    maybeShowSecurityAlert(300);
     return;
   }
 
@@ -3423,7 +3495,6 @@ function closeSecurityAlert() {
   } else {
     // Удаляем из DOM, чтобы не висел в памяти
     overlay.remove();
-    maybeShowSecurityAlert(300);
   }
 })();
 
@@ -3440,8 +3511,6 @@ function nextOnboardSlide() {
     overlay.classList.remove('active');
     localStorage.setItem('ch_tour_completed', 'true'); // Сохраняем в память
     setTimeout(() => overlay.remove(), 600); // Ждем конец анимации и удаляем
-    // Показываем оповещение о безопасности сразу после закрытия велком-тура
-    maybeShowSecurityAlert(700);
     return;
   }
 
