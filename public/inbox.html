@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -802,11 +803,9 @@
 //  Безопасность: переписку видят только 2 участника + admin
 // ══════════════════════════════════════════════════════════════
 
-const API = '/api';
 let socket = null;
 let currentUser = null;
 // Авторизация теперь через HttpOnly-cookie (ch_token), а не localStorage.
-const DEVICE_ID = localStorage.getItem('ch_device_id') || 'anon';
 const ADMINS = ['jwvc', 'Marina64']; // owners — имеют доступ ко всем чатам
 const SYSTEM_SENDER = 'Система'; // системные сообщения от админа — читать можно, отвечать нельзя
 function isSystemPartner(name) { return !!name && name.toLowerCase() === SYSTEM_SENDER.toLowerCase(); }
@@ -851,55 +850,12 @@ document.addEventListener('click',e=>{
 
 // ─── helpers ──────────────────────────────────────────────────
 // escapeHtml (P0, унификация): общая реализация в /js/utils.js
-
-function relativeTime(ts) {
-  const d = new Date(ts);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-  }
-  const days = Math.floor((now - d) / 86400000);
-  if (days === 1) return 'вчера';
-  if (days < 7) return d.toLocaleDateString('ru', { weekday: 'short' });
-  return d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-}
-
-function formatTime(ts) {
-  return new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDay(ts) {
-  const d = new Date(ts);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return 'Сегодня';
-  const days = Math.floor((now - d) / 86400000);
-  if (days === 1) return 'Вчера';
-  return d.toLocaleDateString('ru', { day: 'numeric', month: 'long' });
-}
+// relativeTime/formatTime/formatDay — тоже глобальные, из /js/utils.js
+// (2Г, унификация; локальные копии удалены)
 
 // ─── API ──────────────────────────────────────────────────────
-async function apiGet(path) {
-  const res = await fetch(API + path, {
-    credentials: 'include'
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Ошибка');
-  return data;
-}
-async function apiPost(path, body) {
-  const res = await fetch(API + path, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Device-Id': DEVICE_ID
-    },
-    body: JSON.stringify(body)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Ошибка');
-  return data;
-}
+// apiGet/apiPost — глобальные, из /js/api.js (2А, унификация).
+// X-Device-Id не нужен: сервер читает device id из HttpOnly-cookie.
 
 // ─── STATE ────────────────────────────────────────────────────
 let conversations = [];     // [{partner, lastMsg, lastTs, unread, blocked, blockedByPartner}]

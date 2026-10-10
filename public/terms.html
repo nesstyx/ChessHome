@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Соглашение — Chess Home</title>
@@ -177,14 +178,12 @@
 <!-- 4.5: разметка и скрипт баннера обновления документов перенесены в /js/header.js -->
 
 <script>
-const API='/api';let currentUser=null;
-// 5.3: токен давно в HttpOnly-cookie — чтение localStorage.getItem('ch_token')
-// возвращало null и заголовки 'Bearer null'. Запросы — с credentials:'include'.
+let currentUser=null;
+// 5.3: токен давно в HttpOnly-cookie — браузер прикладывает её сам.
+// apiGet/apiPost — глобальные, из /js/api.js (2А, унификация)
 // escapeHtml (P0, унификация): общая реализация в /js/utils.js
 function getSettings(){try{return JSON.parse(localStorage.getItem('ch_settings')||'{}');}catch{return{};}}
 function applySettings(){const s=getSettings();if(s.boardLight)document.documentElement.style.setProperty('--board-light',s.boardLight);if(s.boardDark)document.documentElement.style.setProperty('--board-dark',s.boardDark);}
-async function apiGet(path){const res=await fetch(API+path,{credentials:'include'});const data=await res.json();if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
-async function apiPost(path,body){const res=await fetch(API+path,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
 function toast(msg,type='info'){const c=document.getElementById('toast-container');const el=document.createElement('div');el.className='toast '+type;el.textContent=msg;c.appendChild(el);setTimeout(()=>el.remove(),3000);}
 function updateHeaderUI() {
   CH.setCurrentUser(currentUser);

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -624,38 +625,12 @@ let clubSocketAuthed = false;
 // escapeHtml (P0, унификация): общая реализация в /js/utils.js
 // toast() — глобальная, из /js/toast.js
 
-async function apiReq(method, path, body) {
-  // Токен в HttpOnly-cookie — Authorization-заголовок из localStorage больше
-  // не нужен, cookie уходит с запросом сама (credentials: 'same-origin').
-  //
-  // Некоторые хостинги/прокси режут методы PATCH/DELETE — запрос не долетает
-  // до сервера, и в ответ прилетает HTML-страница ошибки вместо JSON. Именно
-  // это и вызывало "JSON.parse: unexpected character at line 1 column 1".
-  // Поэтому PATCH/DELETE отправляем как POST на /путь/edit или /путь/delete —
-  // на сервере для них есть POST-дублёры именно на такой случай.
-  let realMethod = method;
-  let realPath = path;
-  if (method === 'PATCH') { realMethod = 'POST'; realPath = path + '/edit'; }
-  else if (method === 'DELETE') { realMethod = 'POST'; realPath = path + '/delete'; }
-
-  const opts = {
-    method: realMethod,
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-  };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(API + realPath, opts);
-  let data;
-  try {
-    data = await res.json();
-  } catch (e) {
-    // Ответ пришёл не в JSON (например, HTML-страница ошибки от прокси
-    // или пустое тело) — не даём "сырой" ошибке JSON.parse всплыть наружу.
-    throw new Error(CH_I18N.t('clubs.error.bad_response') + (res.status ? ` (${res.status})` : '') + '. ' + CH_I18N.t('clubs.error.try_again'));
-  }
-  if (!res.ok) throw new Error(data.error || CH_I18N.t('common.error'));
-  return data;
-}
+// apiGet/apiPost/apiPatch/apiDelete — глобальные, из /js/api.js (2А, унификация).
+// Локальная apiReq удалена. Отличие транспорта: раньше PATCH/DELETE уводились
+// в POST '/edit' и '/delete' из-за хостинга, режущего методы; сейчас PATCH идёт
+// как настоящий PATCH (маршрут app.patch('/api/clubs/:id') есть), DELETE — как
+// централизованный POST '/delete' (дублёр app.post('/api/clubs/:id/delete')) —
+// так же, как это уже работает на blog/news/forum.
 
 // ── Auth / Header ──────────────────────────────────────────────
 // Хедер управляется через CH API (header.js)
@@ -672,7 +647,7 @@ function updateHeaderUI() {
 // ── Load clubs ─────────────────────────────────────────────────
 async function loadClubs() {
   try {
-    allClubs = await apiReq('GET', '/clubs');
+    allClubs = await apiGet('/clubs');
     renderClubs();
     updateLimitsBar();
   } catch(e) {
@@ -781,7 +756,7 @@ async function openClub(id, keepTab) {
   const chatSection = document.getElementById('club-chat-section');
   if (chatSection) chatSection.style.display = 'none';
   try {
-    const club = await apiReq('GET', '/clubs/' + id);
+    const club = await apiGet('/clubs/' + id);
     // Update allClubs with fresh data for this club
     const idx = allClubs.findIndex(c => c.id === club.id);
     if (idx !== -1) allClubs[idx] = club; else allClubs.push(club);
@@ -924,7 +899,7 @@ function toggleEditDesc() {
 async function saveDesc(clubId) {
   const desc = document.getElementById('edit-desc-ta').value;
   try {
-    await apiReq('PATCH', '/clubs/' + clubId, { description: desc });
+    await apiPatch('/clubs/' + clubId, { description: desc });
     toast(CH_I18N.t('clubs.toast.desc_updated'),'success');
     toggleEditDesc();
     openClub(clubId, true);
@@ -940,7 +915,7 @@ function createClubTournament() {
 async function loadClubTournaments(clubId) {
   const grid = document.getElementById('club-tourns-grid');
   try {
-    const list = await apiReq('GET', '/tournaments?clubId=' + encodeURIComponent(clubId));
+    const list = await apiGet('/tournaments?clubId=' + encodeURIComponent(clubId));
     clubTournamentsCache = list;
     document.getElementById('ctab-count-tournaments').textContent = list.length;
     if (!list.length) {
@@ -976,7 +951,7 @@ async function renderClubStats(clubId) {
   grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--text-muted)">${CH_I18N.t('clubs.loading')}</div>`;
   let tournaments = clubTournamentsCache;
   if (!tournaments) {
-    try { tournaments = await apiReq('GET', '/tournaments?clubId=' + encodeURIComponent(clubId)); clubTournamentsCache = tournaments; }
+    try { tournaments = await apiGet('/tournaments?clubId=' + encodeURIComponent(clubId)); clubTournamentsCache = tournaments; }
     catch { tournaments = []; }
   }
   const active = tournaments.filter(t => t.status === 'active').length;
@@ -994,7 +969,7 @@ async function renderClubStats(clubId) {
 
 async function joinClub(id) {
   try {
-    await apiReq('POST', '/clubs/' + id + '/join');
+    await apiPost('/clubs/' + id + '/join');
     toast(CH_I18N.t('clubs.toast.joined'), 'success');
     await loadClubs();
     openClub(id, true);
@@ -1004,7 +979,7 @@ async function joinClub(id) {
 async function leaveClub(id) {
   if (!confirm(CH_I18N.t('clubs.confirm.leave'))) return;
   try {
-    await apiReq('POST', '/clubs/' + id + '/leave');
+    await apiPost('/clubs/' + id + '/leave');
     toast(CH_I18N.t('clubs.toast.left'), 'info');
     backToList();
   } catch(e) { toast(e.message, 'error'); }
@@ -1013,7 +988,7 @@ async function leaveClub(id) {
 async function kickUser(clubId, username) {
   if (!confirm(CH_I18N.t('clubs.confirm.kick',{username}))) return;
   try {
-    await apiReq('POST', '/clubs/' + clubId + '/kick', { username });
+    await apiPost('/clubs/' + clubId + '/kick', { username });
     toast(CH_I18N.t('clubs.toast.kicked',{username}), 'success');
     openClub(clubId, true);
   } catch(e) { toast(e.message, 'error'); }
@@ -1022,7 +997,7 @@ async function kickUser(clubId, username) {
 async function promoteUser(clubId, username) {
   if (!confirm(CH_I18N.t('clubs.confirm.promote',{username}))) return;
   try {
-    await apiReq('POST', '/clubs/' + clubId + '/promote', { username });
+    await apiPost('/clubs/' + clubId + '/promote', { username });
     toast(CH_I18N.t('clubs.toast.promoted',{username}), 'success');
     openClub(clubId, true);
   } catch(e) { toast(e.message, 'error'); }
@@ -1031,7 +1006,7 @@ async function promoteUser(clubId, username) {
 async function demoteUser(clubId, username) {
   if (!confirm(CH_I18N.t('clubs.confirm.demote',{username}))) return;
   try {
-    await apiReq('POST', '/clubs/' + clubId + '/demote', { username });
+    await apiPost('/clubs/' + clubId + '/demote', { username });
     toast(CH_I18N.t('clubs.toast.demoted',{username}), 'success');
     openClub(clubId, true);
   } catch(e) { toast(e.message, 'error'); }
@@ -1040,7 +1015,7 @@ async function demoteUser(clubId, username) {
 async function deleteClub(id) {
   if (!confirm(CH_I18N.t('clubs.confirm.delete_club'))) return;
   try {
-    await apiReq('DELETE', '/clubs/' + id);
+    await apiDelete('/clubs/' + id);
     toast(CH_I18N.t('clubs.toast.club_deleted'), 'success');
     backToList();
   } catch(e) { toast(e.message, 'error'); }
@@ -1060,7 +1035,7 @@ async function createClub() {
   const description = document.getElementById('new-club-desc').value.trim();
   if (!name) { toast(CH_I18N.t('clubs.error.enter_name'), 'error'); return; }
   try {
-    const club = await apiReq('POST', '/clubs', { name, description });
+    const club = await apiPost('/clubs', { name, description });
     toast(CH_I18N.t('clubs.toast.club_created'), 'success');
     closeCreateModal();
     await loadClubs();
@@ -1071,10 +1046,10 @@ async function createClub() {
 // ── Club Chat ──────────────────────────────────────────────────
 let clubSocket = null;
 let currentClubChatId = null;
-let clubChatBadWords = ['блять','блядь','бля','пиздец','пизда','хуй','хуе','хер','ебать','ебал','ебан','нахуй','нахер','сука','мудак','дебил','fuck','bitch','shit','asshole','dick','казино','casino','http://','https://','www.','t.me','telegram','discord'];
-
-function chatNorm(t){return t.toLowerCase().replace(/ё/g,'е').replace(/[@]/g,'a').replace(/[0]/g,'o').replace(/[3]/g,'e').replace(/[1!]/g,'i').replace(/\s+/g,'').replace(/[^a-zа-я]/gi,'');}
-function chatHasBad(t){return clubChatBadWords.some(w=>chatNorm(t).includes(chatNorm(w)));}
+// Фильтр мата/спама — общий, из /js/utils.js (2В, унификация):
+// MAT_WORDS/SPAM_WORDS/normalizeWord/normalize/containsBadWords.
+// Локальные копии стоп-слов и нормализации удалены — общий фильтр
+// покрывает и мат, и спам/казино-ссылки (бывший локальный список).
 
 function formatClubMsg(text, myUsername) {
   let safe = String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1248,7 +1223,7 @@ async function loadClubChat(clubId) {
     inputRow.style.display = 'none';
 
     try {
-      const data = await apiReq('GET', '/clubs/' + clubId + '/chat');
+      const data = await apiGet('/clubs/' + clubId + '/chat');
       msgEl.innerHTML = '';
       (data.messages || []).forEach(m => appendClubChatMsg(m, false));
       msgEl.scrollTop = msgEl.scrollHeight;
@@ -1327,14 +1302,14 @@ async function sendClubChatMsg() {
   if (!text || !currentClubChatId) return;
   if (!currentUser) { toast(CH_I18N.t('common.login_required'), 'error'); return; }
 
-  if (chatHasBad(text)) {
+  if (containsBadWords(text)) {
     toast(CH_I18N.t('clubs.chat.forbidden_words'), 'error');
     return;
   }
 
   inp.value = '';
   try {
-    await apiReq('POST', '/clubs/' + currentClubChatId + '/chat', { message: text });
+    await apiPost('/clubs/' + currentClubChatId + '/chat', { message: text });
   } catch(e) {
     toast(e.message, 'error');
     inp.value = text;
@@ -1365,14 +1340,14 @@ function showClubBanModal(username, clubId) {
   overlay.querySelector('#cban-mute').onclick = async () => {
     overlay.remove();
     try {
-      await apiReq('POST', '/clubs/' + clubId + '/chat-ban', { username, type: 'mute' });
+      await apiPost('/clubs/' + clubId + '/chat-ban', { username, type: 'mute' });
       toast(CH_I18N.t('clubs.toast.muted',{username}), 'success');
     } catch(e) { toast(e.message, 'error'); }
   };
   overlay.querySelector('#cban-ban').onclick = async () => {
     overlay.remove();
     try {
-      await apiReq('POST', '/clubs/' + clubId + '/chat-ban', { username, type: 'ban' });
+      await apiPost('/clubs/' + clubId + '/chat-ban', { username, type: 'ban' });
       toast(CH_I18N.t('clubs.toast.banned',{username}), 'success');
     } catch(e) { toast(e.message, 'error'); }
   };
@@ -1388,7 +1363,7 @@ async function reportClubMsg(msgId, clubId, forUser) {
   const reason = prompt(CH_I18N.t('clubs.report.reason_prompt',{forUser: forUser ? CH_I18N.t('clubs.report.for_user',{forUser}) : ''}), CH_I18N.t('clubs.report.reason_default'));
   if (reason === null) return;
   try {
-    await apiReq('POST', '/clubs/' + clubId + '/chat-report', { msgId, reason });
+    await apiPost('/clubs/' + clubId + '/chat-report', { msgId, reason });
     toast(CH_I18N.t('clubs.toast.report_sent'), 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -1399,7 +1374,7 @@ async function init() {
   CH.initHeader();
   // Токен теперь в HttpOnly-cookie — спрашиваем сервер напрямую вместо
   try {
-    currentUser = await apiReq('GET', '/me');
+    currentUser = await apiGet('/me');
   } catch {
     currentUser = null;
   }

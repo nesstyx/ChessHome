@@ -3,6 +3,7 @@
 
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/toast.js"></script>
 <script src="/js/emojis.js"></script>
   <meta charset="UTF-8">
@@ -829,7 +830,6 @@
   </div>
 
   <script>
-    const API = '/api';
 
     // ── i18n ────────────────────────────────────────────────────
     // Словарь и t() живут в /js/i18n.js (window.CH_I18N), который сам подгружает header.js.
@@ -886,26 +886,10 @@
     // к ним больше нет, поэтому localStorage/заголовки авторизации на клиенте не нужны.
 
     // safeJson() — глобальная, из /js/utils.js
-    async function apiGet(path) {
-      const sep = path.includes('?') ? '&' : '?';
-      const url = API + path + sep + '_=' + Date.now();
-      const res = await fetch(url, { credentials: 'same-origin' });
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data.error || T('common.error'));
-      return data;
-    }
-    async function apiPost(path, body) {
-      const res = await fetch(API + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data.error || T('common.error'));
-      return data;
-    }
-    async function apiDelete(path) {
-      const res = await fetch(API + path, { method: 'DELETE', credentials: 'same-origin' });
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data.error || T('common.error'));
-      return data;
-    }
+    // apiGet/apiPost/apiDelete — глобальные, из /js/api.js (2А, унификация).
+    // Локальная apiDelete была объявлена, но ни разу не вызывалась (мёртвый
+    // код). Кэш-бастер '_=' удалён вместе с локальной apiGet: как и в SPA,
+    // свежесть ответов обеспечивает ETag-ревалидация (как в app.js).
 
     // escapeHtml (P0, унификация): общая реализация в /js/utils.js
     // toast() — глобальная, из /js/toast.js

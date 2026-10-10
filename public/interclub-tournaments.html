@@ -578,12 +578,7 @@ function mskInputValueToUtcIso(inputValue) {
   // UTC-момент независимо от таймзоны сервера/браузера.
   return new Date(inputValue + ':00+03:00').toISOString();
 }
-function formatMskDateTime(ts) {
-  return new Date(ts).toLocaleString('ru-RU', {
-    day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-    timeZone: 'Europe/Moscow'
-  }) + ' МСК';
-}
+// formatMskDateTime — глобальная, из /js/utils.js (2Г, унификация)
 
 // ── INIT ──
 async function init() {

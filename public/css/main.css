@@ -1418,3 +1418,32 @@ select.form-select option { background: var(--bg-card); }
 
 /* ── Дополнительный спиннер (тонкий, для кнопок) ─────────────── */
 @keyframes tSpin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════════════════════════
+   ЛЕТАЮЩИЕ ФИГУРЫ НА ФОНЕ — общий компонент (2Е, унификация).
+   Раньше анимации дублировались: .bg-decor/.bg-piece/@pieceRise в
+   blog.html и .onboard-bg-shapes/.onboard-shape/@floatPiece в index.html.
+   Теперь один компонент с двумя режимами:
+   • rising   — фигуры всплывают снизу один раз (управляется JS, blog);
+   • drifting — фигуры непрерывно дрейфуют (чистый CSS, index).
+   Модификаторы контейнера:
+   • .ch-float-decor--abs      — absolute вместо fixed (внутри оверлея);
+   • .ch-float-decor--desktop  — показывать только на ПК (≥769px).
+   ══════════════════════════════════════════════════════════════ */
+.ch-float-decor{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.ch-float-decor--abs{position:absolute}
+.ch-float-decor--desktop{display:none}
+@media (min-width:769px){.ch-float-decor--desktop{display:block}}
+.ch-float-piece{position:absolute;opacity:0;color:var(--accent,#c9a84c);user-select:none;font-size:38px;line-height:1}
+.ch-float-piece.rising{bottom:-8%;animation:chPieceRise linear both}
+.ch-float-piece.drifting{opacity:1;color:rgba(201,168,76,.05);filter:drop-shadow(0 0 20px rgba(201,168,76,.2));animation:chPieceFloat 20s infinite linear}
+@keyframes chPieceRise{
+  0%{transform:translateY(0) rotate(-4deg);opacity:0}
+  10%{opacity:.045}
+  85%{opacity:.04}
+  100%{transform:translateY(-115vh) rotate(4deg);opacity:0}
+}
+@keyframes chPieceFloat{
+  0%{transform:translateY(100vh) rotate(0deg) scale(0.8)}
+  100%{transform:translateY(-30vh) rotate(360deg) scale(1.2)}
+}

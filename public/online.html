@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Онлайн игроки — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
+  <!-- utils.js (escapeHtml/safeJson, 2Б) + api.js (2А) подключены:
+       локальный escapeHtml удалён, вызовы идут в общие реализации.
+       Порядок важен: utils.js — до header.js (esc = window.escapeHtml). -->
+  <script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
   <script src="/js/header.js"></script>
   <link rel="icon" href="/img/logo/favicon.png">
   <style>
@@ -470,7 +475,6 @@
 //  Chess Home — Online Players Page  (/online)
 // ══════════════════════════════════════════════════════════════
 
-const API = '/api';
 let allUsers   = [];   // raw list from server
 let sortMode   = 'online';
 let searchVal  = '';
@@ -480,7 +484,7 @@ let currentUser = null;
 // ─── Auth ──────────────────────────────────────────────────────
 async function resolveCurrentUser() {
   try {
-    currentUser = await apiFetch('/me');
+    currentUser = await apiGet('/me');
     if (window.CH) {
       CH.setCurrentUser(currentUser);
       CH.setActivePage('online');
@@ -488,18 +492,13 @@ async function resolveCurrentUser() {
   } catch {}
 }
 
-function apiFetch(path, opts = {}) {
-  const headers = { 'Content-Type': 'application/json' };
-  return fetch(API + path, { ...opts, headers, credentials: 'include' }).then(r => {
-    if (!r.ok) throw new Error(r.status);
-    return r.json();
-  });
-}
+// apiGet — глобальная, из /js/api.js (2А, унификация); локальная
+// apiFetch удалена (бросала голый Error со статусом вместо текста ошибки).
 
 // ─── Load users ────────────────────────────────────────────────
 async function loadUsers() {
   try {
-    const users = await apiFetch('/online/users');
+    const users = await apiGet('/online/users');
     allUsers = Array.isArray(users) ? users : [];
     updateCounts(allUsers.length);
     render();
@@ -654,14 +653,7 @@ function writeTo(username) {
   window.location.href = '/inbox/' + encodeURIComponent(username);
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
-}
+// escapeHtml — глобальная, из /js/utils.js (2Б, унификация)
 
 // ─── Socket: live updates ──────────────────────────────────────
 function connectSocket() {

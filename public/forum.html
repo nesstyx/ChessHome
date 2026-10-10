@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -298,7 +299,6 @@ document.addEventListener('click',e=>{
   }
 });
 
-const API='/api';
 // Авторизация теперь через HttpOnly-cookie (ch_token) — не localStorage.
 let currentUser=null;
 let currentThreadId=null;
@@ -308,8 +308,6 @@ const PER_PAGE=20;
 const REPLIES_PER_PAGE = 50;
 let currentReplyPage = 1;
 
-function getDeviceId(){let id=localStorage.getItem('ch_device_id');if(!id){id='dev_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);localStorage.setItem('ch_device_id',id);}return id;}
-const DEVICE_ID=getDeviceId();
 
 
 function timeAgo(ts){
@@ -337,36 +335,10 @@ function mdRender(text){
   return'<p>'+escapeHtml(text).replace(/\n/g,'<br>')+'</p>';
 }
 
-async function apiGet(path){
-  const res=await fetch(API+path,{credentials:'include'});
-  const data=await res.json();
-  if(!res.ok)throw new Error(data.error||CH_I18N.t('forum.error_status',{status:res.status}));
-  return data;
-}
-async function apiPost(path,body){
-  const res=await fetch(API+path,{
-    method:'POST',
-    credentials:'include',
-    headers:{'Content-Type':'application/json','X-Device-Id':DEVICE_ID},
-    body:JSON.stringify(body)
-  });
-  const data=await res.json();
-  if(!res.ok)throw new Error(data.error||CH_I18N.t('forum.error_status',{status:res.status}));
-  return data;
-}
-async function apiDelete(path){
-  // DELETE как HTTP-метод режется на уровне nginx/WAF у части посетителей
-  // (см. тот же фикс в blog.html) — поэтому шлём POST на path+'/delete'.
-  const res=await fetch(API+path+'/delete',{
-    method:'POST',
-    credentials:'include',
-    headers:{'Content-Type':'application/json','X-Device-Id':DEVICE_ID},
-    body:'{}'
-  });
-  const data=await res.json();
-  if(!res.ok)throw new Error(data.error||CH_I18N.t('forum.error_status',{status:res.status}));
-  return data;
-}
+// apiGet/apiPost/apiDelete — глобальные, из /js/api.js (2А, унификация).
+// Транспорт apiDelete — POST '/delete' (WAF режет DELETE, на сервере
+// есть POST-дублёры). X-Device-Id не нужен: сервер читает device id
+// из HttpOnly-cookie ch_device_id, заголовок не используется.
 
 // toast() — глобальная, из /js/toast.js
 

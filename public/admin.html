@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/toast.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -381,7 +382,8 @@
 </div>
 
 <script>
-const API='/api';let currentUser=null;
+let currentUser=null;
+// apiGet/apiPost/apiPatch — глобальные, из /js/api.js (2А, унификация)
 // Токен авторизации больше не хранится в localStorage — он живёт только
 // в HttpOnly cookie (ch_token), которую браузер сам прикладывает к запросам.
 // escapeHtml (P0, унификация): общая реализация в /js/utils.js
@@ -433,9 +435,6 @@ function _askModal(message, opts) {
 }
 function askText(message, defaultValue = '') { return _askModal(message, { input: true, defaultValue }); }
 function askConfirm(message) { return _askModal(message, { input: false }); }
-async function apiGet(path){const res=await fetch(API+path,{credentials:'same-origin'});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
-async function apiPost(path,body){const res=await fetch(API+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
-async function apiPatch(path,body){const res=await fetch(API+path,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await safeJson(res);if(!res.ok)throw new Error(data.error||'Ошибка');return data;}
 // toast() — глобальная, из /js/toast.js
 function updateHeaderUI(){
   const el=document.getElementById('header-right');el.innerHTML='';

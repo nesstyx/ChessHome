@@ -275,13 +275,8 @@ let _graceBannerTimer = null; // тикает раз в секунду, пока
 
 // safeJson() — глобальная, из /js/utils.js; toast() — из /js/toast.js; экранирование — escapeHtml()
 
-// ── MSK TIME HELPERS ── (турнир всегда показывается в московском времени, UTC+3)
-function formatMskDateTime(ts) {
-  return new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) + ' МСК';
-}
-function formatMskShort(ts) {
-  return new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
-}
+// ── MSK TIME HELPERS ── (турнир всегда показывается в московском времени,
+// UTC+3) — общие formatMskDateTime/formatMskShort из /js/utils.js (2Г)
 
 // ── INIT ──
 async function init() {

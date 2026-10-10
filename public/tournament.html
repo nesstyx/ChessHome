@@ -837,12 +837,12 @@ async function loadTournament() {
 }
 
 // ── SOCKET ──
-// ── Запуск турнирной партии — сразу на доску ─────────────────
-let _tCdInterval = null; // оставляем для совместимости с clearInterval
+// ── Запуск турнирной партии — сразу на доску ───────────────
+// _tCdInterval удалён (3Г): локальный тайминг больше не ведётся —
+// тайминг партии полностью контролируется сервером.
 function launchTournamentGame(data) {
   // Убираем старый оверлей если есть
   document.getElementById('t-cd-overlay')?.remove();
-  clearInterval(_tCdInterval);
   // Кладём данные в sessionStorage — app.js подхватит и запустит игру
   try { sessionStorage.setItem('ch_launch_game', JSON.stringify(data)); } catch(e) {}
   window.location.href = '/';
