@@ -845,16 +845,19 @@ const chessBoard = (() => {
     const myTurn = activeColor === playerColor;
 
     if (bottomEl) {
-      bottomEl.textContent = formatTime(myTime);
+      bottomEl.textContent = formatClock(myTime);
       bottomEl.className = 'player-clock' + (myTurn && clockRunning ? ' active' : '') + (myTime < 30 ? ' low' : '');
     }
     if (topEl) {
-      topEl.textContent = formatTime(theirTime);
+      topEl.textContent = formatClock(theirTime);
       topEl.className = 'player-clock' + (!myTurn && clockRunning ? ' active' : '') + (theirTime < 30 ? ' low' : '');
     }
   }
 
-  function formatTime(sec) {
+  // Форматирование ШАХМАТНЫХ ЧАСОВ (секунды → «m:ss»). Переименовано из
+  // formatTime (2Г): глобальный formatTime из /js/utils.js — про время
+  // сообщений (таймстамп → «ЧЧ:ММ»), это — про время партии на часах.
+  function formatClock(sec) {
     // Округляем вниз — время дробное (float) после точного отсчёта
     const totalSec = Math.max(0, Math.floor(sec));
     const m = Math.floor(totalSec / 60);

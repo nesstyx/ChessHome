@@ -2,6 +2,11 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
+  <!-- 2Д: общий шахматный движок (на chess.js) — вся логика позиции,
+       легальных ходов и применения хода теперь отсюда -->
+  <script src="/js/vendor/chess.js"></script>
+  <script src="/js/chess-engine.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chess Home | ⚡Puzzle Storm</title>
@@ -702,7 +707,8 @@
   const storm = {
     puzzles:[], idx:0, score:0, correct:0, wrong:0, streak:0,
     timeBonus:0, timeLeft:STORM_DURATION, running:false, _timer:null,
-    currentPuzzle:null, board:null, flipped:false, legalDests:{},
+    currentPuzzle:null, state:null, board:null, playerSide:'w',
+    flipped:false, legalDests:{},
     selected:null, playerMoves:[], autoMoves:[], moveStep:0, autoPlaying:false,
     runId:null, checking:false,
   };
@@ -711,23 +717,12 @@
 
   // ── Auth check ─────────────────────────────────────────────
   // Токен — в HttpOnly-cookie ch_token, её JS прочитать не может (и не должен).
-  // Она уезжает сама с любым fetch с credentials:'include', так что заголовок
-  // Authorization тут не нужен — /api/me проверит куку на сервере.
-  function _authHeaders() {
-    return {};
-  }
-
+  // Она уезжает сама с запросом, так что заголовок Authorization не нужен —
+  // /api/me проверит куку на сервере. apiGet — из /js/api.js (2А).
   async function initAuth() {
     try {
-      const r = await fetch('/api/me', {
-        credentials: 'include',
-      });
-      if (r.ok) {
-        currentUser = await r.json();
-        loadPersonalBest();
-      } else {
-        document.getElementById('storm-login-notice').style.display = 'flex';
-      }
+      currentUser = await apiGet('/me');
+      loadPersonalBest();
     } catch (e) {
       document.getElementById('storm-login-notice').style.display = 'flex';
     }
@@ -736,7 +731,7 @@
   async function loadPersonalBest() {
     if (!currentUser) return;
     try {
-      const r = await apiFetch(`/api/storm/player/${encodeURIComponent(currentUser.username)}`);
+      const r = await apiGet('/storm/player/' + encodeURIComponent(currentUser.username));
       if (r && r.runs > 0) {
         document.getElementById('storm-pb').style.display = 'block';
         document.getElementById('storm-pb-val').textContent = r.best;
@@ -756,13 +751,8 @@
     }
   }
 
-  // ── API helper ─────────────────────────────────────────────
-  async function apiFetch(url, opts = {}) {
-    const headers = { ..._authHeaders(), ...(opts.headers || {}) };
-    const r = await fetch(url, { credentials: 'include', ...opts, headers });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw e; }
-    return r.json();
-  }
+  // ── API ────────────────────────────────────────────────────
+  // apiGet/apiPost — глобальные, из /js/api.js (2А, унификация)
 
   // ════════════════════════════════════════════════════════════
   //  GAME ENGINE
@@ -788,13 +778,13 @@
     // Сервер сам засекает старт забега — нужно для проверки результата на финише.
     if (currentUser) {
       try {
-        const s = await apiFetch('/api/storm/start', { method: 'POST' });
+        const s = await apiPost('/storm/start', {});
         storm.runId = s.runId;
       } catch (e) { /* без runId результат просто не сохранится на финише */ }
     }
 
     try {
-      const data = await apiFetch(`/api/storm/puzzles?topics=mate1,mate2&runId=${encodeURIComponent(storm.runId || '')}`);
+      const data = await apiGet('/storm/puzzles?topics=mate1,mate2&runId=' + encodeURIComponent(storm.runId || ''));
       if (!data || !data.length) { alert('Не удалось загрузить задачи'); showScreen('landing'); return; }
       storm.puzzles = data;
     } catch (e) { alert('Ошибка загрузки задач'); showScreen('landing'); return; }
@@ -847,14 +837,10 @@
 
     if (!currentUser) return;
     try {
-      const r = await apiFetch('/api/storm/finish', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          score: storm.score, totalAttempted: storm.correct + storm.wrong,
-          correct: storm.correct, wrong: storm.wrong, timeBonus: storm.timeBonus,
-          runId: storm.runId,
-        }),
+      const r = await apiPost('/storm/finish', {
+        score: storm.score, totalAttempted: storm.correct + storm.wrong,
+        correct: storm.correct, wrong: storm.wrong, timeBonus: storm.timeBonus,
+        runId: storm.runId,
       });
       if (r && r.isBest) {
         document.getElementById('storm-record-badge').style.display = 'inline-block';
@@ -880,12 +866,24 @@
     const puz = storm.puzzles[storm.idx++];
     if (!puz) return;
 
+    // 2Д: позиция задачи разбирается общим движком (chess.js валидирует FEN)
+    let st;
+    try {
+      st = ChessEngine.parseFEN(puz.fen);
+    } catch (e) {
+      console.error('[Storm] Некорректный FEN задачи', puz && puz.id, e);
+      storm.puzzles.splice(storm.idx - 1, 1);
+      if (!storm.puzzles.length) { stormFinish(); return; }
+      loadPuzzle();
+      return;
+    }
     storm.currentPuzzle = puz;
-    storm.board         = fenToBoard(puz.fen);
+    storm.state         = st;
+    storm.board         = st.board;
+    storm.playerSide    = st.turn;
     // Первый ход — за стороной из FEN (она же — сторона игрока).
     // FEN-сторона = сторона игрока → переворачиваем если FEN говорит что ходят чёрные
-    const fenSide = fenTurn(puz.fen);
-    storm.flipped = fenSide === 'w'; // за чёрных — переворачиваем
+    storm.flipped = st.turn === 'w';
 
     storm.moveStep   = 0;
     storm.selected   = null;
@@ -900,114 +898,40 @@
     if (prog) prog.style.width = Math.min(100, storm.idx / storm.puzzles.length * 100) + '%';
   }
 
-  // ── Chess helpers ──────────────────────────────────────────
-  function fenToBoard(fen) {
-    const board = Array(64).fill(null);
-    const rows  = fen.split(' ')[0].split('/');
-    for (let r = 0; r < 8; r++) {
-      let f = 0;
-      for (const ch of rows[r]) {
-        if (ch >= '1' && ch <= '8') { f += +ch; }
-        else { board[(7-r)*8+f] = { color: ch===ch.toUpperCase()?'w':'b', type: ch.toLowerCase() }; f++; }
-      }
-    }
-    return board;
+  // ── Chess helpers — из /js/chess-engine.js (2Д, унификация) ──
+  // Локальный мини-движок удалён: самописный разбор FEN, определение
+  // очереди хода, преобразования координат «клетка↔UCI», отрисовка
+  // фигур и применение хода с ручной рокировкой теперь делает
+  // ChessEngine на chess.js (parseFEN / squareToIndex / indexToSquare /
+  // applyMove). Ниже — единственный адаптер: UCI-строка → объект хода.
+
+  // Применение хода в UCI-нотации («e2e4», «e7e8q») через общий движок:
+  // рокировка, взятие на проходе и превращение считаются в chess.js.
+  function applyUci(uci) {
+    const from  = ChessEngine.squareToIndex(uci.slice(0, 2));
+    const to    = ChessEngine.squareToIndex(uci.slice(2, 4));
+    const promo = uci.length === 5 ? uci[4] : undefined;
+    storm.state = ChessEngine.applyMove(storm.state, { from, to, promotion: promo });
+    storm.board = storm.state.board;
   }
 
-  function fenTurn(fen) { return (fen.split(' ')[1] || 'w'); }
-
-  function sqToUCI(sq) { return 'abcdefgh'[sq%8] + (Math.floor(sq/8)+1); }
-  function uciToSq(uci) {
-    const file = uci.charCodeAt(0) - 97;
-    const rank = parseInt(uci[1]) - 1;
-    return rank * 8 + file;
-  }
-
-  function pieceChar(p) {
-    // Возвращает путь к SVG: /img/pieces/wQ.svg, bK.svg и т.д.
-    const typeMap = { k:'K', q:'Q', r:'R', b:'B', n:'N', p:'P' };
-    return '/img/pieces/' + p.color + typeMap[p.type] + '.svg';
-  }
-
-  function applyMove(uci) {
-    const from  = uciToSq(uci.slice(0,2));
-    const to    = uciToSq(uci.slice(2,4));
-    const promo = uci.length === 5 ? uci[4] : null;
-    const nb    = [...storm.board];
-    nb[to]   = promo ? { color: nb[from]?.color || 'w', type: promo } : nb[from];
-    nb[from] = null;
-    if (nb[to]?.type === 'k') {
-      if (uci==='e1g1'){nb[5]=nb[7];nb[7]=null;}
-      if (uci==='e1c1'){nb[3]=nb[0];nb[0]=null;}
-      if (uci==='e8g8'){nb[61]=nb[63];nb[63]=null;}
-      if (uci==='e8c8'){nb[59]=nb[56];nb[56]=null;}
-    }
-    storm.board = nb;
-  }
-
-  // ── Legal dests — все ходы текущего цвета ──────────────────
-  // Игрок может сделать ЛЮБОЙ ход. Правильность — в checkMove.
+  // ── Legal dests — все ходы стороны игрока (2Д: генерирует chess.js) ──
+  // Игрок может сделать ЛЮБОЙ ход. Правильность — в checkMove (на сервере).
+  // Ходы считаются всегда для СТОРОНЫ ИЗ FEN ЗАДАЧИ (storm.playerSide),
+  // а не для текущей очереди хода state: автоответ соперника приходит с
+  // сервера и применяется отдельно, и к моменту хода игрока очередь снова
+  // его — так вела себя и прежняя реализация.
   function computeLegal() {
     storm.legalDests = {};
-    if (!storm.currentPuzzle || !storm.board) return;
-    // Игрок всегда ходит своим цветом (из FEN задачи)
-    const turn = fenTurn(storm.currentPuzzle.fen);
-    const opp  = turn === 'w' ? 'b' : 'w';
-    const rnk  = sq => Math.floor(sq / 8);
-    const fil  = sq => sq % 8;
-
-    function slide(from, dr, df) {
-      const res = [];
-      let r = rnk(from) + dr, f = fil(from) + df;
-      while (r >= 0 && r < 8 && f >= 0 && f < 8) {
-        const sq = r * 8 + f;
-        if (storm.board[sq]) { if (storm.board[sq].color === opp) res.push(sq); break; }
-        res.push(sq);
-        r += dr; f += df;
-      }
-      return res;
+    if (!storm.state || !storm.currentPuzzle) return;
+    let work = storm.state;
+    if (work.turn !== storm.playerSide) {
+      work = ChessEngine.deepClone(work);
+      work.turn = storm.playerSide;
     }
-
-    function jump(from, moves) {
-      return moves
-        .map(([dr, df]) => [rnk(from)+dr, fil(from)+df])
-        .filter(([r, f]) => r >= 0 && r < 8 && f >= 0 && f < 8)
-        .map(([r, f]) => r * 8 + f)
-        .filter(sq => !storm.board[sq] || storm.board[sq].color === opp);
-    }
-
-    for (let from = 0; from < 64; from++) {
-      const p = storm.board[from];
-      if (!p || p.color !== turn) continue;
-      let targets = [];
-      if (p.type === 'p') {
-        const dir = turn === 'w' ? 1 : -1;
-        const startRank = turn === 'w' ? 1 : 6;
-        const r = rnk(from), f = fil(from);
-        const fwd1 = (r + dir) * 8 + f;
-        if (r + dir >= 0 && r + dir < 8 && !storm.board[fwd1]) {
-          targets.push(fwd1);
-          if (r === startRank && !storm.board[(r + dir*2)*8 + f]) targets.push((r + dir*2)*8 + f);
-        }
-        [-1, 1].forEach(df => {
-          const nr = r+dir, nf = f+df;
-          if (nr >= 0 && nr < 8 && nf >= 0 && nf < 8) {
-            const sq = nr*8+nf;
-            if (storm.board[sq] && storm.board[sq].color === opp) targets.push(sq);
-          }
-        });
-      } else if (p.type === 'n') {
-        targets = jump(from, [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]);
-      } else if (p.type === 'b') {
-        targets = [[-1,-1],[-1,1],[1,-1],[1,1]].flatMap(([dr,df]) => slide(from,dr,df));
-      } else if (p.type === 'r') {
-        targets = [[-1,0],[1,0],[0,-1],[0,1]].flatMap(([dr,df]) => slide(from,dr,df));
-      } else if (p.type === 'q') {
-        targets = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]].flatMap(([dr,df]) => slide(from,dr,df));
-      } else if (p.type === 'k') {
-        targets = jump(from, [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]);
-      }
-      if (targets.length) storm.legalDests[from] = targets;
+    for (const mv of ChessEngine.allLegalMoves(work)) {
+      if (!storm.legalDests[mv.from]) storm.legalDests[mv.from] = [];
+      storm.legalDests[mv.from].push(mv.to);
     }
   }
 
@@ -1015,8 +939,7 @@
   function updateTurnIndicator() {
     const el = document.getElementById('storm-turn-indicator');
     if (!el || !storm.currentPuzzle) return;
-    const fenSide   = fenTurn(storm.currentPuzzle.fen);
-    const playerColor = fenSide; // игрок ходит первым, его сторона = FEN-сторона
+    const playerColor = storm.playerSide; // игрок ходит первым, его сторона = FEN-сторона
     // movesCount приходит с сервера (число ходов игрока) — само решение не выдаётся
     const isMate1 = (storm.currentPuzzle.movesCount || 1) === 1;
     const mateLabel = isMate1 ? 'Мат в 1 ход' : 'Мат в 2 хода';
@@ -1074,7 +997,8 @@
       const piece = storm.board[logical];
       if (piece) {
         const img = document.createElement('img');
-        img.src = pieceChar(piece);
+        // 2Д: тип фигуры — 'K'/'Q'/… (верхний регистр ChessEngine) → wK.svg и т.п.
+        img.src = '/img/pieces/' + piece.color + piece.type + '.svg';
         img.style.cssText = `width:${Math.floor(sq*.82)}px;height:${Math.floor(sq*.82)}px;position:relative;z-index:1;display:block;pointer-events:none;`;
         img.draggable = false;
         cell.appendChild(img);
@@ -1110,7 +1034,7 @@
     const isPromo = p?.type==='p' &&
       ((p.color==='w'&&toRank===7)||(p.color==='b'&&toRank===0));
     if (isPromo) { showPromoDialog(from, to); return; }
-    checkMove(from, to, sqToUCI(from)+sqToUCI(to));
+    checkMove(from, to, ChessEngine.indexToSquare(from)+ChessEngine.indexToSquare(to));
   }
 
   function showPromoDialog(from, to) {
@@ -1138,7 +1062,7 @@
       pi.style.cssText = 'width:36px;height:36px;display:block;pointer-events:none;';
       pi.draggable = false;
       btn.appendChild(pi);
-      btn.onclick = () => { overlay.remove(); checkMove(from, to, sqToUCI(from)+sqToUCI(to)+p); };
+      btn.onclick = () => { overlay.remove(); checkMove(from, to, ChessEngine.indexToSquare(from)+ChessEngine.indexToSquare(to)+p); };
       row.appendChild(btn);
     });
     box.appendChild(row);
@@ -1154,13 +1078,9 @@
     storm.checking = true;
     let answer = null;
     try {
-      answer = await apiFetch('/api/storm/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId: storm.runId, puzzleId: storm.currentPuzzle.id, uci }),
-      });
+      answer = await apiPost('/storm/move', { runId: storm.runId, puzzleId: storm.currentPuzzle.id, uci });
     } catch (e) {
-      applyMove(uci);
+      applyUci(uci);
       storm.selected = null;
       storm.checking = false;
       return;
@@ -1169,7 +1089,7 @@
 
     if (answer && answer.correct) {
       const canon = answer.canon || uci;
-      applyMove(canon);
+      applyUci(canon);
       storm.selected = null;
       storm.moveStep++;
 
@@ -1190,7 +1110,7 @@
           storm.autoPlaying = true;
           computeLegal(); render();
           setTimeout(() => {
-            applyMove(nextAuto);
+            applyUci(nextAuto);
             storm.autoPlaying = false;
             computeLegal(); render(); updateTurnIndicator();
           }, 350);
@@ -1276,7 +1196,7 @@
     const list = document.getElementById('storm-lb-list');
     list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted,#888)">Загрузка...</div>';
     try {
-      const data = await apiFetch('/api/storm/leaderboard');
+      const data = await apiGet('/storm/leaderboard');
       _lbLoaded = true;
       if (!data||!data.length) {
         list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted,#888)">Ещё никто не играл</div>';
@@ -1310,7 +1230,7 @@
     if (!val.trim()) { res.style.display = 'none'; return; }
     _searchTimer = setTimeout(async () => {
       try {
-        const d = await apiFetch(`/api/storm/player/${encodeURIComponent(val.trim())}`);
+        const d = await apiGet('/storm/player/' + encodeURIComponent(val.trim()));
         res.style.display = 'block';
         if (!d || d.error) {
           res.innerHTML = `<div style="color:var(--text-muted,#888);font-size:14px">Игрок <b>${escapeHtml(val.trim())}</b> не найден или ни разу не играл в Шторм</div>`;

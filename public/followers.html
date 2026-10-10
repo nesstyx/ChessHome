@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Подписчики — Chess Home</title>
@@ -91,18 +92,11 @@
 </div>
 
 <script>
-  const API = '/api';
   // Авторизация теперь через HttpOnly-cookie (ch_token), а не localStorage —
   // куки отправляются автоматически при credentials: 'include'.
 
 
-  async function apiGet(path) {
-    const res = await fetch(API + path, {
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Ошибка');
-    return res.json();
-  }
+  // apiGet — глобальная, из /js/api.js (2А, унификация)
 
   async function load() {
     const path = location.pathname;

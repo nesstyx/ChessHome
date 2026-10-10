@@ -6,6 +6,7 @@
   <title data-i18n="settings.page_title">Настройки — Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
   <script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
   <script src="/js/toast.js"></script>
   <script src="/js/header.js"></script>
   <script src="/js/i18n.js"></script>
@@ -147,15 +148,18 @@
       </div>
     </div>
 
-    <!-- МОДАЛКА ПОДТВЕРЖДЕНИЯ ПАРОЛЕМ (удаление аккаунта) -->
-    <div id="modal-confirm-code" class="modal-overlay" style="display:none">
+    <!-- МОДАЛКА ПОДТВЕРЖДЕНИЯ ПАРОЛЕМ (удаление аккаунта).
+         Раньше контейнер назывался modal-confirm-code — атавизм времён
+         планировавшихся 2FA/подтверждения по email (выработаны из продукта);
+         теперь имя отражает реальную логику — подтверждение паролем. -->
+    <div id="modal-confirm-password" class="modal-overlay" style="display:none">
       <div class="modal" style="max-width:420px">
         <h3 style="margin-top:0">Удаление аккаунта</h3>
         <p style="color:var(--text-secondary);font-size:14px">Введите свой пароль для подтверждения. Действие необратимо.</p>
         <input type="password" id="confirm-password-input" class="input" style="width:100%;padding:10px 14px" autocomplete="current-password">
         <div style="display:flex;gap:10px;margin-top:16px">
           <button class="btn btn-primary btn-sm" style="flex:1;background:var(--danger,#e05252)" onclick="submitDeleteAccount()">Удалить навсегда</button>
-          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="closeConfirmCodeModal()">Отмена</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="closeConfirmPasswordModal()">Отмена</button>
         </div>
       </div>
     </div>
@@ -214,19 +218,7 @@ function updateLangButtons() {
   document.getElementById('lang-btn-en')?.classList.toggle('active', cur === 'en');
 }
 
-async function apiGet(path) {
-  const res = await fetch(API + path, { credentials: 'same-origin' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || CH_I18N.t('common.error'));
-  return data;
-}
-
-async function apiPost(path, body) {
-  const res = await fetch(API + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || CH_I18N.t('common.error'));
-  return data;
-}
+// apiGet/apiPost — глобальные, из /js/api.js (2А, унификация)
 
 function updateHeaderUI() { if (window.CH) CH.setCurrentUser(currentUser); }
 
@@ -303,12 +295,12 @@ async function removeEmoji() {
 function requestDeleteAccount() {
   if (!currentUser) { toast(CH_I18N.t('common.login_required'), 'error'); return; }
   if (!confirm(CH_I18N.t('settings.delete_confirm'))) return;
-  document.getElementById('modal-confirm-code').style.display = '';
+  document.getElementById('modal-confirm-password').style.display = '';
   setTimeout(() => document.getElementById('confirm-password-input')?.focus(), 50);
 }
 
-function closeConfirmCodeModal() {
-  document.getElementById('modal-confirm-code').style.display = 'none';
+function closeConfirmPasswordModal() {
+  document.getElementById('modal-confirm-password').style.display = 'none';
   const inp = document.getElementById('confirm-password-input');
   if (inp) inp.value = '';
 }
@@ -375,7 +367,7 @@ async function init() {
   // Аккаунт-блок
   if (currentUser) {
     renderAccountInfo();
-    // Удаление аккаунта (2FA/email выведены из продукта — строки убраны)
+    // Удаление аккаунта — подтверждение паролем
     const rowDelete = document.getElementById('row-delete-account');
     if (rowDelete) rowDelete.style.display = '';
   }

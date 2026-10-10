@@ -2,7 +2,11 @@
 //  Chess Home — Главный файл приложения
 // ══════════════════════════════════════════════════════════════
 
-const API = '/api';
+// HTTP-клиент (apiGet/apiPost/parseApiResponse) и фильтр чата
+// (MAT_WORDS/SPAM_WORDS/normalizeWord/normalize/containsBadWords)
+// вынесены в общие модули /js/api.js и /js/utils.js (2А, 2В — унификация):
+// index.html подключает их до app.js, глобальные имена доступны и здесь.
+
 let socket = null;
 let currentUser = null;
 
@@ -38,83 +42,9 @@ const STREAMERS = ['VLAD', 'Solo', 'aaa', 'GGbers'];
 // "жиробас") — это токсичность, а не мат, они были причиной того что
 // фильтр казался слишком строгим. Настоящие ругательства остаются
 // под запретом.
-const MAT_WORDS = [
-  'блять','блядь','бля','пиздец','пизда','пизду','пизды',
-  'сука','сучка','хуй','хуе','хер',
-  'ебать','ебал','ебан','ебаный','ебло','еблан','ебуч','заеб','выеб',
-  'нахуй','нахер','похуй','похер',
-  'гандон','долбоеб','долбоёб','далбаеб','далбоеб','далбоёб','мудак',
-  'шлюха','шлюх','шалава','проститутка',
-  'соси','сосать','отсоси','сраный','обосранный','пздц',
-  'порн','влагалище','секс','сэкс','дрочка','пидор',
-  // англ
-  'fuck','fucking','bitch','asshole','dick','shit',
-];
-
-// Спам / казино / ставки / реклама — тут по-прежнему ищем максимально
-// агрессивно (в одну сплошную строку без пробелов), чтобы ловить обход
-// фильтра вставкой пробелов и точек: "к а з и н о", "т . м е" и т.п.
-// Ложных срабатываний на обычные слова тут не бывает (это не мат-корни).
-const SPAM_WORDS = [
-  'казино','casino','ставки','ставка','bet','букмекер',
-  '1xbet','melbet','parimatch','fonbet',
-  'aviator','crash',
-  'выигрыш','джекпот','бонус','бонусы','промокод','депозит',
-  'фриспины','free spin',
-  'прогноз','договорной матч',
-  'http://','https://','www.',
-  't.me','telegram','discord','discord.gg',
-  'vk.com','instagram.com','tiktok.com',
-  'легкие деньги', 'http','https','www','tme','discordgg'
-];
-
-// Замены букв/цифр для обхода фильтра (leetspeak) — без удаления
-// пробелов, чтобы можно было отдельно проверять по словам.
-function normalizeWord(text) {
-  return text
-    .toLowerCase()
-    .replace(/ё/g, 'е')
-    .replace(/[@]/g, 'a')
-    .replace(/[0]/g, 'o')
-    .replace(/[3]/g, 'e')
-    .replace(/[1!]/g, 'i')
-    .replace(/9/g, 'я')
-    .replace(/6/g, 'б')
-    .replace(/4/g, 'ч');
-}
-
-// Старая агрессивная нормализация (для спам/казино-проверки): убираем
-// вообще все пробелы и небуквенные символы, чтобы ловить обход через
-// расстановку пробелов между буквами.
-function normalize(text) {
-  return normalizeWord(text)
-    .replace(/\s+/g, '')
-    .replace(/[^a-zа-я0-9]/gi, '');
-}
-
-function containsBadWords(text) {
-  const collapsed = normalize(text);
-  if (SPAM_WORDS.some(word => collapsed.includes(normalize(word)))) return true;
-
-  // 2) Мат — проверяем по отдельным словам, а не по случайной подстроке
-  //    посреди текста. Короткие корни (3 буквы и меньше, типа "бля",
-  //    "хер") ловим ТОЛЬКО как начало слова — иначе словим "рубля",
-  //    "сабля", "кораблях" и подобные ни при чём не виноватые слова,
-  //    которые просто ЗАКАНЧИВАются на такое сочетание букв. Более
-  //    длинные и однозначные корни ("блять","пиздец","ебаный"...)
-  //    по-прежнему ищем где угодно внутри слова — это по-прежнему
-  //    ловит приставочные формы вроде "разъебали".
-  const tokens = normalizeWord(text).replace(/[^a-zа-я0-9\s]/gi, '').split(/\s+/).filter(Boolean);
-  return MAT_WORDS.some(rawWord => {
-    const word = normalizeWord(rawWord).replace(/[^a-zа-я0-9]/gi, '');
-    if (!word) return false;
-    // "хер" отдельно — только точное совпадение слова целиком, иначе
-    // ловит "Херсон", "херувим" и подобные ни при чём не виноватые слова.
-    if (word === 'хер') return tokens.includes(word);
-    if (word.length <= 3) return tokens.some(t => t.startsWith(word));
-    return tokens.some(t => t.includes(word));
-  });
-}
+// ФИЛЬТР ЧАТА (MAT_WORDS/SPAM_WORDS/normalizeWord/normalize/
+// containsBadWords) вынесен в /js/utils.js (2В, унификация) —
+// единая реализация работает и в лобби, и в клубах.
 
 // ─── ROUTER ───────────────────────────────────────────────────
 const pages = {};
@@ -151,36 +81,8 @@ function showPage(name) {
 }
 
 // ─── API ──────────────────────────────────────────────────────
-// Сервер иногда может ответить не JSON'ом (HTML-страница от прокси/
-async function parseApiResponse(res) {
-  const text = await res.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch (e) {
-    throw new Error('Сервер временно недоступен. Попробуйте ещё раз через минуту.');
-  }
-  if (!res.ok) {
-    const err = new Error(data.error || 'Ошибка');
-    throw err;
-  }
-  return data;
-}
-
-async function apiPost(path, body) {
-  const res = await fetch(API + path, {
-    method: 'POST',
-    credentials: 'same-origin', // отправляет HttpOnly cookie ch_token / ch_device_id
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  return parseApiResponse(res);
-}
-
-async function apiGet(path) {
-  const res = await fetch(API + path, { credentials: 'same-origin' });
-  return parseApiResponse(res);
-}
+// apiGet/apiPost/parseApiResponse вынесены в /js/api.js (2А, унификация):
+// единый HTTP-клиент для SPA и всех standalone-страниц.
 
 // ─── TOAST ────────────────────────────────────────────────────
 

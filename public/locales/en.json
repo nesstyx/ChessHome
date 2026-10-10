@@ -69,16 +69,9 @@
     "toast_emoji_saved": "Emoji saved!",
     "toast_emoji_removed": "Emoji removed",
     "delete_name": "Delete account",
-    "delete_desc": "Permanently deletes your account, games, statistics and messages. A code from your email is required.",
     "delete_btn": "Delete account",
     "delete_confirm": "Are you sure you want to delete your account? This action cannot be undone!",
-    "delete_code_sent": "An account deletion confirmation code has been sent to your email",
-    "delete_code_title": "Account deletion confirmation",
-    "delete_code_hint": "Enter the code from your email to confirm account deletion",
-    "delete_done": "Account deleted. Thank you for being with us!",
-    "code_confirm": "Confirm",
-    "code_cancel": "Cancel",
-    "code_invalid": "Enter the 6-digit code from your email"
+    "delete_done": "Account deleted. Thank you for being with us!"
   },
   "header": {
     "menu_aria": "Menu",

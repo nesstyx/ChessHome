@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>404 — Страница не найдена | Chess Home</title>
   <link rel="stylesheet" href="/css/main.css">
+  <script src="/js/utils.js"></script>
   <script src="/js/header.js"></script>
   <link rel="shortcut icon" href="/img/logo/favicon.png" type="image/x-icon">
   <style>
@@ -244,8 +245,9 @@
       display: block; width: 100%; height: 520px; border: none;
     }
 
-    /* Fallback */
-    .game-fallback {
+    /* Сбой загрузки игры — стандартная иконка ошибки (2Доп2: легаси-блок
+       с git-инструкциями удалён — игра всегда есть в сборке) */
+    .game-error {
       padding: 52px 32px;
       text-align: center;
     }
@@ -254,25 +256,10 @@
       animation: spinSlow 8s linear infinite;
     }
     @keyframes spinSlow { to { transform: rotate(360deg); } }
-    .game-fallback h3 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
-    .game-fallback > p {
+    .game-error p {
       font-size: 13px; color: var(--text-secondary);
-      max-width: 420px; margin: 0 auto 22px; line-height: 1.65;
+      max-width: 420px; margin: 0 auto; line-height: 1.65;
     }
-    .install-box {
-      display: inline-block;
-      background: rgba(0,0,0,0.35);
-      border: 1px solid rgba(201,168,76,0.18);
-      border-radius: 12px;
-      padding: 16px 22px;
-      text-align: left;
-      font-family: var(--font-mono, monospace);
-      font-size: 13px;
-      line-height: 2;
-    }
-    .install-box .kw  { color: #7fb8f0; }
-    .install-box .pth { color: #98d4a3; }
-    .install-box .cmt { color: var(--text-muted, #5a5e78); }
 
     .game-bar {
       display: flex;
@@ -390,23 +377,10 @@
 
     <div class="game-card">
       <div class="game-frame-wrap" id="game-wrap">
-        <div class="game-fallback" id="game-fallback">
-          <span class="fallback-icon">♞</span>
-          <h3>Установите Chess Pursuit</h3>
-          <p>
-            Скачайте репо и скопируйте папку <strong style="color:var(--accent)">bin-release</strong> в нужное место — и игра появится прямо здесь.
-          </p>
-          <div class="install-box">
-            <div><span class="kw">git clone</span> https://github.com/Saturnyn/ChessPursuit</div>
-            <div><span class="cmt"># Затем скопируйте папку в ваш public:</span></div>
-            <div><span class="kw">cp -r</span> ChessPursuit/<span class="pth">bin-release</span>/ public/<span class="pth">games/chess-pursuit/</span></div>
-            <div><span class="cmt"># Итог: public/games/chess-pursuit/index.html</span></div>
-          </div>
-          <p style="margin-top:18px;font-size:12px;color:var(--text-muted)">
-            После этого обновите страницу — игра загрузится автоматически.
-          </p>
-        </div>
-      </div>
+      <!-- Игра всегда присутствует в сборке (public/games/chess-pursuit),
+           поэтому iframe подгружается сразу, без легаси-инструкций по
+           «установке» (2Доп2). При сбое сети — иконка ошибки. -->
+    </div>
 
       <div class="game-bar">
         <div class="game-bar-left">
@@ -420,18 +394,28 @@
   </div>
 
 </div><script>
-// ── LOAD GAME IF EXISTS ──
+// ── LOAD GAME ──
+// Игра всегда есть в сборке — грузим сразу. При сбое сети показываем
+// стандартную иконку ошибки вместо легаси-инструкций (2Доп2).
 fetch('/games/chess-pursuit/index.html', { method: 'HEAD' })
   .then(r => {
-    if (!r.ok) return;
-    const fb = document.getElementById('game-fallback');
-    if (fb) fb.remove();
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const iframe = document.createElement('iframe');
     iframe.src = '/games/chess-pursuit/index.html';
     iframe.allow = 'autoplay';
     iframe.setAttribute('allowfullscreen', '');
     document.getElementById('game-wrap').appendChild(iframe);
-  }).catch(() => {});
+  })
+  .catch(() => {
+    const wrap = document.getElementById('game-wrap');
+    if (wrap) {
+      wrap.innerHTML =
+        '<div class="game-error">' +
+        '<span class="fallback-icon">♞</span>' +
+        '<p>Игра временно недоступна — проверьте подключение и обновите страницу.</p>' +
+        '</div>';
+    }
+  });
 
 // ── FLOATING CHESS PARTICLES ──
 (function () {

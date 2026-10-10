@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
 <script src="/js/toast.js"></script>
 <script src="/js/emojis.js"></script>
   <meta charset="UTF-8">
@@ -62,35 +63,10 @@
   pointer-events: all;
 }
 
-/* ФОНОВЫЕ АНИМАЦИИ (Только для ПК) */
-.onboard-bg-shapes { display: none; }
+/* ФОНОВЫЕ АНИМАЦИИ (Только для ПК) — стили вынесены в /css/main.css
+   (.ch-float-decor / .ch-float-piece / @chPieceFloat, 2Е — унификация
+   с фоновым декором blog.html). Здесь остаётся только раскладка фигур. */
 @media (min-width: 769px) {
-  .onboard-bg-shapes {
-    display: block;
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    overflow: hidden;
-  }
-  .onboard-shape {
-    position: absolute;
-    font-size: 80px;
-    color: rgba(201, 168, 76, 0.05);
-    filter: drop-shadow(0 0 20px rgba(201, 168, 76, 0.2));
-    animation: floatPiece 20s infinite linear;
-  }
-  .onboard-shape:nth-child(1) { top: 10%; left: 15%; animation-duration: 25s; }
-  .onboard-shape:nth-child(2) { top: 70%; left: 10%; animation-duration: 22s; animation-delay: -5s; font-size: 120px; }
-  .onboard-shape:nth-child(3) { top: 20%; right: 15%; animation-duration: 28s; animation-delay: -10s; }
-  .onboard-shape:nth-child(4) { top: 60%; right: 10%; animation-duration: 24s; animation-delay: -15s; font-size: 100px; }
-  .onboard-shape:nth-child(5) { top: 40%; left: 50%; animation-duration: 35s; animation-delay: -2s; font-size: 150px; opacity: 0.5; }
-
-  @keyframes floatPiece {
-    0% { transform: translateY(100vh) rotate(0deg) scale(0.8); }
-    100% { transform: translateY(-30vh) rotate(360deg) scale(1.2); }
-  }
-
   #ch-onboarding.active {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -1532,12 +1508,15 @@
 <body>
 
   <div id="ch-onboarding">
-  <div class="onboard-bg-shapes">
-    <div class="onboard-shape">♚</div>
-    <div class="onboard-shape">♞</div>
-    <div class="onboard-shape">♛</div>
-    <div class="onboard-shape">♜</div>
-    <div class="onboard-shape">♟</div>
+  <!-- Фигуры на фоне: общий компонент .ch-float-* из /css/main.css (2Е).
+       Показ — только на ПК (.ch-float-decor--desktop), позиционирование —
+       инлайн (раньше — nth-child-правила). -->
+  <div class="ch-float-decor ch-float-decor--abs ch-float-decor--desktop">
+    <div class="ch-float-piece drifting" style="top:10%;left:15%;animation-duration:25s">♚</div>
+    <div class="ch-float-piece drifting" style="top:70%;left:10%;animation-duration:22s;animation-delay:-5s;font-size:120px">♞</div>
+    <div class="ch-float-piece drifting" style="top:20%;right:15%;animation-duration:28s;animation-delay:-10s">♛</div>
+    <div class="ch-float-piece drifting" style="top:60%;right:10%;animation-duration:24s;animation-delay:-15s;font-size:100px">♜</div>
+    <div class="ch-float-piece drifting" style="top:40%;left:50%;animation-duration:35s;animation-delay:-2s;font-size:150px;opacity:.5">♟</div>
   </div>
 
   <div class="onboard-container">

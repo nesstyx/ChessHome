@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <script src="/js/utils.js"></script>
+<script src="/js/api.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-i18n="news.page_title">Новости — Chess Home</title>
@@ -480,7 +481,6 @@ a{color:inherit;text-decoration:none}
 //    GET   /api/me
 // ══════════════════════════════════════════════════════════════
 
-const API = '/api';
 const OWNER_USERNAME = 'chesshome';
 let currentUser = null;
 let newsAuthors = ['marina64']; // fallback до загрузки с сервера
@@ -506,7 +506,7 @@ function getDevId() {
 }
 const DEVID = getDevId();
 
-function formatDate(ts) { return new Date(ts).toLocaleDateString((window.CH_I18N && CH_I18N.getLang && CH_I18N.getLang() === 'en') ? 'en-US' : 'ru-RU',{day:'numeric',month:'long',year:'numeric'}); }
+// formatDate() — глобальная, из /js/utils.js (2Г, унификация)
 function mdRender(text) {
   if (!text) return '';
   return DOMPurify.sanitize(marked.parse(text, {breaks:true,gfm:true}), {USE_PROFILES:{html:true}});
@@ -526,39 +526,9 @@ function toast(msg, type='info') {
   setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(30px)'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); }, 3500);
 }
 
-function getHdrs(withCT=true) {
-  const h = { 'X-Device-Id': DEVID };
-  if (withCT) h['Content-Type'] = 'application/json';
-  return h;
-}
-async function apiGet(path) {
-  const r = await fetch(API+path, {headers: getHdrs(false), credentials: 'same-origin'});
-  return parseApiResponse(r);
-}
-async function parseApiResponse(r) {
-  const raw = await r.text();
-  let d;
-  try { d = raw ? JSON.parse(raw) : {}; }
-  catch {
-    console.error('[News] Не-JSON ответ', r.status, raw.slice(0, 300));
-    const err = new Error(r.ok ? 'Сервер вернул некорректный ответ' : `Ошибка сервера (${r.status}). Попробуйте ещё раз`);
-    err.status = r.status; throw err;
-  }
-  if (!r.ok) { const err = new Error(d.error || 'Ошибка'); err.status = r.status; throw err; }
-  return d;
-}
-async function apiPost(path, body) {
-  const r = await fetch(API+path, {method:'POST', headers:getHdrs(), credentials:'same-origin', body:JSON.stringify(body)});
-  return parseApiResponse(r);
-}
-async function apiPatch(path, body) {
-  const r = await fetch(API+path, {method:'PATCH', headers:getHdrs(), credentials:'same-origin', body:JSON.stringify(body)});
-  return parseApiResponse(r);
-}
-async function apiDelete(path) {
-  const r = await fetch(API+path+'/delete', {method:'POST', headers:getHdrs(), credentials:'same-origin', body:'{}'});
-  return parseApiResponse(r);
-}
+// apiGet/apiPost/apiPatch/apiDelete/parseApiResponse — глобальные,
+// из /js/api.js (2А, унификация). Транспорт apiDelete — POST '/delete'
+// (WAF режет DELETE; на сервере есть POST-дублёры).
 
 // UTF-8-safe base64, чтобы markdown с кириллицей/эмодзи/спецсимволами
 // проходил через WAF как обычный набор base64-символов.
@@ -787,7 +757,7 @@ async function openPost(id, noView) {
     const cbbWrap = document.getElementById('comments-btn-wrap');
     if (post.status === 'published') {
       cbbWrap.style.display = 'block';
-      fetch(API+'/news/'+id+'/comments', {headers:getHdrs(false)})
+      apiGet('/news/'+id+'/comments')
         .then(r=>r.json()).then(d=>{
           const el = document.getElementById('cbb-count');
           if (el) el.textContent = d.count > 0 ? d.count : '';
@@ -963,7 +933,7 @@ async function onCoverFileChange(e) {
   try {
     const fd = new FormData();
     fd.append('file', file);
-    const r = await fetch(API+'/upload', { method:'POST', headers:{'X-Device-Id':DEVID}, credentials:'same-origin', body: fd });
+    const r = await fetch('/api/upload', { method:'POST', credentials:'same-origin', body: fd });
     const d = await parseApiResponse(r);
     setCoverPreview(d.url);
     toast('Обложка загружена','success');
@@ -1119,8 +1089,7 @@ function toggleModPanel(cid) {
 async function deleteComment(cid) {
   if (!confirm('Удалить этот комментарий?')) return;
   try {
-    const res = await fetch(API+'/news/'+cmtPostId+'/comments/'+cid+'/delete', {method:'POST',headers:getHdrs(),body:'{}'});
-    const d = await res.json(); if (!res.ok) throw new Error(d.error||'Ошибка');
+    const d = await apiDelete('/news/'+cmtPostId+'/comments/'+cid);
     const c = cmtData.find(x=>x.id===cid);
     if (c) { c.deleted=true; c.deletedBy=d.deletedBy||null; c.body=null; }
     const el = document.getElementById('cmt-'+cid);
