@@ -803,6 +803,7 @@
 //  Безопасность: переписку видят только 2 участника + admin
 // ══════════════════════════════════════════════════════════════
 
+
 let socket = null;
 let currentUser = null;
 // Авторизация теперь через HttpOnly-cookie (ch_token), а не localStorage.
@@ -1644,6 +1645,48 @@ window.openDMWith = function(username) {
   if (username === currentUser.username) { toast('Нельзя писать самому себе', 'error'); return; }
   window.location = '/inbox/' + encodeURIComponent(username);
 };
+function checkAndInsertBotText() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const textFromUrl = urlParams.get('input');
+
+  if (textFromUrl) {
+    // Находим именно вашу textarea по ID
+    const textarea = document.getElementById('dm-input');
+    
+    if (textarea) {
+      // 1. Записываем текст в вашу переменную input
+      input = textFromUrl; 
+
+      // 2. Вставляем текст внутрь textarea двумя способами для надежности
+      textarea.value = textFromUrl;
+      textarea.innerText = textFromUrl;
+
+      // 3. У вас на элементе висит oninput="autoResize(this)". 
+      // Вызываем её вручную, чтобы поле увеличилось по высоте под текст вопроса
+      if (typeof autoResize === 'function') {
+        autoResize(textarea);
+      }
+
+      // 4. Искусственно пинаем события, чтобы кнопка отправки активировалась
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.focus();
+      
+      return true; // Успешно вставили
+    }
+  }
+  return false;
+}
+
+// Запускаем проверку каждые 100 миллисекунд, пока элемент не появится в DOM
+const insertInterval = setInterval(() => {
+  if (checkAndInsertBotText()) {
+    clearInterval(insertInterval); // Как только вставили — останавливаем таймер
+  }
+}, 100);
+
+// На всякий случай ограничиваем работу таймера (например, 5 секунд), если инпута вообще нет на странице
+setTimeout(() => clearInterval(insertInterval), 5000);
+
 
 </script>
 

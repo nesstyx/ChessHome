@@ -657,10 +657,15 @@ const INTENTS = [
 ];
 
 const FALLBACK_ANSWERS = [
+ { answers: [
   'Сейчас я не отвечаю на вопросы, а просто кайфую на этом сайте. Думаю, вы тоже 😌',
   'Хм, это не совсем по моей части — я тут больше отдыхаю и наблюдаю за партиями. Сыграй лучше партийку!',
   'На такие вопросы я пока не отвечаю — предпочитаю просто наслаждаться шахматами тут. Присоединяйся!',
   'Ой, это выше моих скромных возможностей. Зато я отлично умею кайфовать на ChessHome — присоединяйся!',
+  'Если хочешь чтобы я умел отвечать на такой вопрос, то отправь его разработчикам'
+],
+action: {label: 'Дневник разработки →', href: '/dev-diary'}
+ }
 ];
 
 const SUGGESTED_QUESTIONS = [
@@ -672,13 +677,37 @@ function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function findAnswer(userText) {
   const norm = normalizeText(userText);
-  if (!norm) return { text: pickRandom(FALLBACK_ANSWERS) };
+  const encodedQuery = encodeURIComponent('Добавьте этот вопрос в базу Chesshome AI: ' + userText || '');
+  
+  
+  const dynamicAction = {
+    label: 'Отправить разработчикам →',
+    href: `http://chesshome.pro/inbox/shahmati_23?input=${encodedQuery}`
+  };
+  
+  if (!norm) {
+    return { 
+      text: 'Упс! Кажется я еще не знаю как на это отвечать. Если хочешь чтобы я умел отвечать на такой вопрос, то отправь его разработчикам', 
+      action: dynamicAction  
+    };
+  }
+  
+  
   for (const intent of INTENTS) {
     if (intent.keywords.some(kw => norm.includes(kw))) {
-      return { text: pickRandom(intent.answers), action: intent.action || null };
+      
+      return { 
+        text: intent.answers[0]
+        
+      };
     }
   }
-  return { text: pickRandom(FALLBACK_ANSWERS) };
+  
+
+  return { 
+    text: 'Упс! Кажется я еще не знаю как на это отвечать. Если хочешь чтобы я умел отвечать на такой вопрос, то отправь его разработчикам', 
+    action: dynamicAction 
+  };
 }
 
 // ─── Состояние авторизации ──────────────────────────────────────

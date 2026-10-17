@@ -1069,23 +1069,87 @@
       const pts = ratings.map((r, i) => ({ x: PAD + (i / (ratings.length - 1)) * (W - PAD * 2), y: PAD + (1 - (r - mn) / (mx - mn)) * (H - PAD * 2), val: r }));
       const lineD = pts.map((p, i) => i === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`).join(' ');
       const areaD = lineD + ` L${pts[pts.length - 1].x},${H} L${pts[0].x},${H} Z`;
-      svg.innerHTML = `<defs><linearGradient id="rg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
-    <path d="${areaD}" fill="url(#rg)"/><path d="${lineD}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
-    ${pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="5" fill="var(--bg-secondary)" stroke="var(--accent)" stroke-width="2" data-val="${p.val}" onmouseenter="showTooltip(event,this)" onmouseleave="hideTooltip()"/>`).join('')}
-    <text x="${pts[pts.length - 1].x}" y="${pts[pts.length - 1].y - 10}" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="700">${ratings[ratings.length - 1]}</text>`;
+      const hitWidth = 24;
+      const svgHeight = typeof H !== 'undefined' ? H : 300; 
+      svg.innerHTML = `
+      <defs>
+        <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity=".35"/>
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+    <path d="${areaD}" fill="url(#rg)"/>
+    <path d="${lineD}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    ${pts.map(p => `
+    <circle cx="${p.x}" cy="${p.y}" r="1.5" 
+            fill="var(--bg-secondary)" 
+            stroke="var(--accent)" 
+            stroke-width="2" 
+            data-val="${p.val}" 
+            style="pointer-events: none;" 
+            
+            />
+    <rect x="${p.x - hitWidth / 2}" y="0" 
+              width="${hitWidth}" height="${svgHeight}" 
+              fill="transparent" 
+              style="cursor: pointer; pointer-events: all;" 
+              data-val="${p.val}" 
+              data-x="${p.x}"
+              data-y="${p.y}"
+              onmouseenter="showTooltip(event,this)" 
+              onmouseleave="hideTooltip()"/>
+    `).join('')}
+    <text x="${pts[pts.length - 1].x}" y="${Math.max(12, pts[pts.length - 1].y - 10)}" text-anchor="middle" 
+      fill="var(--accent)" font-size="12" font-weight="700">${ratings[ratings.length - 1]}
+    </text>`;
+
     }
     function showTooltip(e, el) {
-      let tooltip = document.getElementById('rtooltip');
-      if (!tooltip) { tooltip = document.createElement('div'); tooltip.id = 'rtooltip'; tooltip.style.cssText = 'position:absolute;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:12px;pointer-events:none;z-index:100;display:none'; document.body.appendChild(tooltip); }
-      tooltip.innerHTML = '★ ' + el.dataset.val;
-      tooltip.style.display = 'block';
-      const rect = el.closest('svg').getBoundingClientRect();
-      const cx = parseFloat(el.getAttribute('cx')), cy = parseFloat(el.getAttribute('cy'));
-      const svgW = rect.width;
-      const left = rect.left + (cx / 500) * svgW + window.scrollX;
-      const top = rect.top + (cy / 120) * rect.height - 32 + window.scrollY;
-      tooltip.style.left = left + 'px'; tooltip.style.top = top + 'px';
-    }
+  let tooltip = document.getElementById('rtooltip');
+
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'rtooltip';
+    tooltip.style.cssText = `
+      position: fixed;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 9999;
+      display: none;
+    `;
+    document.body.appendChild(tooltip);
+  }
+
+  tooltip.textContent = '★ ' + el.dataset.val;
+  tooltip.style.display = 'block';
+
+  const svg = el.closest('svg');
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return;
+
+  
+  const point = svg.createSVGPoint();
+  point.x = Number(el.dataset.x);
+  point.y = Number(el.dataset.y);
+
+  const screenPoint = point.matrixTransform(matrix);
+
+  
+  const gap = 8;
+  let left = screenPoint.x + gap;
+  let top = screenPoint.y - tooltip.offsetHeight - gap;
+
+  
+  left = Math.min(left, window.innerWidth - tooltip.offsetWidth - 4);
+  top = Math.max(4, top);
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
     function hideTooltip() { const t = document.getElementById('rtooltip'); if (t) t.style.display = 'none'; }
 
     // таблица рейтинга

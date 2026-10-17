@@ -36,21 +36,21 @@ function D() {
 
 // ── Параметры Glicko-2 ─────────────────────────────────────────
 const SCALE = 173.7178;
-const TAU = 0.5;                 // «инерция» волатильности (0.3–1.2)
+const TAU = 1.1;                 // «инерция» волатильности (0.3–1.2)
 const MAX_RD = 250;              // потолок неопределённости (в т.ч. после долгого простоя)
 const USER_START_RD = 150;       // новичок: рейтинг двигается быстро, пока не «откалибруется»
-const MIN_RD_USER = 45;
-const MIN_RD_PUZZLE = 30;
-const MIN_VOL = 0.01;
-const MAX_VOL = 0.2;
-const DEFAULT_VOL = 0.06;
+const MIN_RD_USER = 110;
+const MIN_RD_PUZZLE = 50;
+const MIN_VOL = 0.05;
+const MAX_VOL = 0.3;
+const DEFAULT_VOL = 0.12;
 const PERIODS_PER_DAY = 0.2;     // 1 «период» = ~5 дней: столько растёт RD у тех, кто не заходит
 const USER_START_RATING = 1200;
 const USER_MIN_RATING = 100;
 const PUZZLE_MIN_RATING = 100;
 const PUZZLE_MAX_RATING = 3500;
 const PUZZLE_START_RD = 150;
-const DIFF_RATING = { easy: 900, medium: 1300, hard: 1700 };
+const DIFF_RATING = { easy: 1200, medium: 1850, hard: 2500 };
 
 function g(phi) { return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI)); }
 function expected(mu, muJ, phiJ) { return 1 / (1 + Math.exp(-g(phiJ) * (mu - muJ))); }
@@ -136,6 +136,9 @@ function rateAttempt(u, p, solved, now) {
     p, [{ rating: u.rating, rd: u.rd, score: solved ? 0 : 1 }],
     { periods: periodsSince(p.ratedAt, now), minRd: MIN_RD_PUZZLE }
   );
+
+  
+
   newU.rating = Math.max(USER_MIN_RATING, newU.rating);
   newP.rating = Math.min(PUZZLE_MAX_RATING, Math.max(PUZZLE_MIN_RATING, newP.rating));
   return { user: newU, puzzle: newP };
