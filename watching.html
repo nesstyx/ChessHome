@@ -1,0 +1,351 @@
+<!-- ========================================== -->
+<!-- НАЧАЛО: РАЗДЕЛ ПРОСМОТР (VIEW SECTION) -->
+<!-- ========================================== -->
+
+<!-- 1. ДОБАВЛЕНИЕ В НАВИГАЦИЮ (Header) -->
+<!-- Вставьте этот <li> внутрь <ul class="nav-links"> в вашей шапке, ПЕРЕД "Сообщество" -->
+<li class="nav-item-dropdown">
+    <a href="#" class="nav-link" onclick="event.preventDefault(); switchPage('view')">
+        Просмотр
+        <span class="dropdown-arrow">▼</span>
+    </a>
+    <div class="dropdown-menu">
+        <a href="#" onclick="loadSubSection('streams')">🎮 Трансляции</a>
+        <a href="#" onclick="loadSubSection('tv')">📺 ChessHome TV</a>
+    </div>
+</li>
+
+<!-- 2. САМА СТРАНИЦА (Page Content) -->
+<!-- Вставьте этот блок внутрь #app, после #page-lobby и перед #page-community -->
+<div id="page-view" class="page">
+    <div class="view-container">
+        <header class="view-header">
+            <h1 class="view-title">Медиацентр Chess Home</h1>
+            <p class="view-subtitle">Лучшие партии, стримы и обучающие видео в одном месте.</p>
+        </header>
+
+        <div class="cards-grid">
+            <!-- Карточка: Трансляции -->
+            <div class="card" onclick="loadSubSection('streams')">
+                <div class="card-image stream-bg"></div>
+                <div class="card-content">
+                    <span class="badge">LIVE</span>
+                    <h3>Трансляции</h3>
+                    <p>Смотри игры топовых гроссмейстеров в реальном времени. Чат, аналитика и обсуждение ходов.</p>
+                    <div class="card-footer">
+                        <span>Сейчас в эфире: 3 матча</span>
+                        <span class="arrow">→</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Карточка: ChessHome TV -->
+            <div class="card" onclick="loadSubSection('tv')">
+                <div class="card-image tv-bg"></div>
+                <div class="card-content">
+                    <span class="badge">LIBRARY</span>
+                    <h3>ChessHome TV</h3>
+                    <p>Архив партий, обучающие курсы, разборы дебютов и интервью с легендами шахмат.</p>
+                    <div class="card-footer">
+                        <span>Более 500 видео</span>
+                        <span class="arrow">→</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Заглушки для будущих списков (опционально) -->
+        <div id="view-sub-content" style="padding-top: 40px; display: none;">
+            <h2 id="sub-title" style="color: var(--text-primary); margin-bottom: 20px;"></h2>
+            <div class="placeholder-content" style="background: var(--bg-secondary); padding: 40px; border-radius: var(--radius-lg); text-align: center; color: var(--text-secondary);">
+                <p>Здесь скоро появится контент раздела: <span id="sub-name" style="color: var(--accent); font-weight: 700;"></span></p>
+                <p style="margin-top: 10px; font-size: 14px;">Загрузка стримов и видео...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- СТИЛИ (CSS) -->
+<!-- Добавьте эти стили в ваш основной <style> блок -->  <link rel="stylesheet" href="/css/main.css">
+  <link rel="icon" href="/img/logo/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0e0f13;--bg2:#161820;--bg3:#1e2028;--bg4:#262830;
+  --border:#2e3040;--border2:#3a3d50;
+  --text:#e8e9f0;--text2:#8a8ea8;--text3:#5a5e78;
+  --accent:#c9a84c;--accent-d:#a07830;--accent-l:#e8c870;
+  --green:#4caf72;--red:#e05555;--blue:#5b9ef0;
+  --radius:10px;--radius-lg:16px;
+  --shadow:0 4px 20px rgba(0,0,0,.4);
+  --hh:60px;
+  --font:'Nunito',sans-serif;
+  --font-d:'Playfair Display',serif;
+}
+html{scroll-behavior:smooth}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+::selection{background:var(--accent);color:#000}
+a{color:inherit;text-decoration:none}
+#header{position:fixed;top:0;left:0;right:0;height:var(--hh);background:rgba(14,15,19,.96);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;z-index:1000;gap:16px}
+.logo{font-family:var(--font-d);font-size:22px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:8px;white-space:nowrap;flex-shrink:0}
+.nav-links{display:flex;gap:4px;margin-left:16px;list-style:none}
+.nav-links a{color:var(--text2);padding:6px 14px;border-radius:8px;font-size:14px;font-weight:600;transition:all .2s;white-space:nowrap}
+.nav-links a:hover,.nav-links a.active{color:var(--text);background:var(--bg4)}
+.nav-links a.active{color:var(--accent)}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.online-badge{display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:13px;color:var(--text2);white-space:nowrap;flex-shrink:0}
+.online-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 20px;border-radius:8px;border:none;font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn-primary{background:var(--accent);color:#0e0f13;box-shadow:0 2px 12px rgba(201,168,76,.3)}
+.btn-primary:hover{background:var(--accent-l);box-shadow:0 4px 20px rgba(201,168,76,.5);transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text);border-color:var(--border2)}
+.btn-danger{background:transparent;color:var(--red);border:1px solid rgba(224,85,85,.35)}
+.btn-danger:hover{background:rgba(224,85,85,.1);border-color:var(--red)}
+.btn-sm{padding:5px 14px;font-size:13px}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
+.user-menu{position:relative}
+.user-btn{display:flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--text);transition:all .2s}
+.user-btn:hover{border-color:var(--border2)}
+.user-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:6px;min-width:200px;z-index:200;box-shadow:var(--shadow);display:none}
+.user-dropdown.open{display:block}
+.dropdown-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;color:var(--text2);transition:all .15s}
+.dropdown-item:hover{background:var(--bg4);color:var(--text)}
+.dropdown-item.danger:hover{color:var(--red)}
+.player-av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-d));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#000;flex-shrink:0}
+.rating-pill{background:rgba(201,168,76,.15);color:var(--accent);font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px}
+#toast-container{position:fixed;bottom:24px;right:24px;z-index:9000;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 18px;font-size:14px;color:var(--text);box-shadow:var(--shadow);animation:toastIn .3s ease;display:flex;align-items:center;gap:10px;min-width:240px}
+.toast.success{border-color:var(--green)}.toast.error{border-color:var(--red)}.toast.info{border-color:var(--accent)}
+@keyframes toastIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
+.burger{display:none;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border:none;background:none;flex-shrink:0}
+.burger span{display:block;width:22px;height:2px;background:var(--text);border-radius:2px;transition:all .25s}
+.burger.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.burger.open span:nth-child(2){opacity:0}
+.burger.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+.mobile-nav{display:none;position:fixed;top:var(--hh);left:0;right:0;background:rgba(14,15,19,.98);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);z-index:999;padding:12px 0;flex-direction:column;gap:2px}
+.mobile-nav.open{display:flex}
+.mobile-nav a{color:var(--text2);padding:12px 24px;font-size:15px;font-weight:600;transition:color .15s,background .15s}
+.mobile-nav a:hover,.mobile-nav a.active{color:var(--accent);background:rgba(201,168,76,.06)}
+.spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+<style> 
+    /* --- Навигация: Выпадающее меню --- */
+    .nav-item-dropdown {
+        position: relative;
+        display: inline-block;
+    }
+
+    .dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        min-width: 200px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 8px 0;
+        z-index: 1001;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        margin-top: 4px;
+    }
+
+    .nav-item-dropdown:hover .dropdown-menu {
+        display: block;
+        animation: fadeIn 0.2s ease-out;
+    }
+
+    .dropdown-menu a {
+        display: block;
+        padding: 12px 16px;
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+
+    .dropdown-menu a:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        padding-left: 20px;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* --- Страница Просмотр --- */
+    #page-view {
+        padding-top: var(--header-h);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: calc(100vh - var(--header-h));
+    }
+
+    .view-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 40px 24px;
+    }
+
+    .view-header {
+        text-align: center;
+        margin-bottom: 60px;
+    }
+
+    .view-title {
+        font-family: var(--font-display);
+        font-size: clamp(32px, 5vw, 64px);
+        line-height: 1.1;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+    }
+
+    .view-subtitle {
+        font-size: 16px;
+        color: var(--text-secondary);
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 30px;
+    }
+
+    .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+    }
+
+    .card:hover {
+        transform: translateY(-8px);
+        border-color: var(--accent);
+        box-shadow: 0 10px 30px rgba(201, 168, 76, 0.15);
+    }
+
+    .card-image {
+        width: 100%;
+        height: 200px;
+        flex-shrink: 0;
+        background-size: cover;
+        background-position: center;
+        position: relative;
+    }
+
+    /* Фоновые изображения (заглушки градиентом, чтобы не было битых ссылок) */
+    .stream-bg {
+        background: linear-gradient(135deg, #1e0f2a 0%, #0e0f13 100%);
+        /* Здесь можно поставить url('stream.jpg') */
+    }
+
+    .tv-bg {
+        background: linear-gradient(135deg, #0f1e2a 0%, #0e0f13 100%);
+        /* Здесь можно поставить url('tv.jpg') */
+    }
+
+    .card-content {
+        padding: 24px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .badge {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        margin-bottom: 12px;
+        font-weight: 700;
+    }
+
+    .badge[style*="LIVE"] { background: rgba(76, 175, 80, 0.2); color: var(--green); }
+    .badge[style*="LIBRARY"] { background: rgba(76, 175, 80, 0.1); color: var(--text-secondary); }
+
+    .card h3 {
+        font-family: var(--font-display);
+        font-size: 24px;
+        margin-bottom: 16px;
+        color: var(--text-primary);
+    }
+
+    .card p {
+        color: var(--text-secondary);
+        font-size: 15px;
+        line-height: 1.6;
+        margin-bottom: 24px;
+        flex: 1;
+    }
+
+    .card-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-light);
+        color: var(--text-muted);
+        font-size: 13px;
+    }
+
+    .arrow {
+        color: var(--accent);
+        font-weight: 700;
+        transition: transform 0.3s;
+    }
+
+    .card:hover .arrow {
+        transform: translateX(4px);
+        color: var(--accent-light);
+    }
+
+    /* --- Логика переключения подсекций (JS внутри HTML для удобства вставки) --- */
+    <script>
+        function loadSubSection(section) {
+            const content = document.getElementById('view-sub-content');
+            const title = document.getElementById('sub-title');
+            const name = document.getElementById('sub-name');
+            
+            content.style.display = 'block';
+            
+            if (section === 'streams') {
+                title.textContent = 'Прямые трансляции';
+                name.textContent = 'Трансляции';
+                // Здесь логика загрузки стримов
+            } else if (section === 'tv') {
+                title.textContent = 'ChessHome TV Библиотека';
+                name.textContent = 'ChessHome TV';
+                // Здесь логика загрузки видео
+            }
+            
+            // Плавный скролл к контенту
+            content.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</style>
+
+<!-- ========================================== -->
+<!-- КОНЕЦ: РАЗДЕЛ ПРОСМОТР -->
+<!-- ========================================== -->
