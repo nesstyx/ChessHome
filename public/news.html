@@ -74,7 +74,6 @@ a{color:inherit;text-decoration:none}
 .news-card{background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:0;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .1s;position:relative;overflow:hidden;display:flex;gap:0}
 .news-card:hover{border-color:var(--accent);box-shadow:0 4px 24px rgba(201,168,76,.12);transform:translateY(-1px)}
 .news-card.draft{border-left:3px solid var(--text3)}
-.news-card-cover{width:180px;flex-shrink:0;background:var(--bg4) center/cover no-repeat}
 .news-card-body{padding:20px 24px;flex:1;min-width:0}
 .news-card-noimg .news-card-body{padding:22px 26px}
 .draft-badge{display:inline-block;background:rgba(90,94,120,.25);color:var(--text3);font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:.5px;margin-bottom:8px;margin-right:4px}
@@ -93,7 +92,6 @@ a{color:inherit;text-decoration:none}
 #view-post{display:none}
 .vp-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text3);cursor:pointer;padding:6px 0;transition:color .15s;margin-bottom:12px}
 .vp-back:hover{color:var(--accent)}
-.vp-cover{width:100%;max-height:380px;object-fit:cover;border-radius:16px;margin-bottom:20px;display:block}
 .vp-hero{background:linear-gradient(135deg,rgba(201,168,76,.07),rgba(201,168,76,.02));border:1px solid rgba(201,168,76,.18);border-radius:16px;padding:32px 34px 28px;margin-bottom:34px;position:relative;overflow:hidden}
 .vp-hero::after{content:'';position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(120deg,transparent,rgba(255,255,255,.07),transparent);transform:skewX(-20deg);animation:heroSweep 8s ease-in-out infinite}
 @keyframes heroSweep{0%{left:-60%}45%,100%{left:130%}}
@@ -115,7 +113,6 @@ a{color:inherit;text-decoration:none}
 .md-body a{color:var(--accent);text-decoration:underline}
 .md-body strong{font-weight:700}.md-body em{font-style:italic}
 .md-body hr{border:none;border-top:1px solid var(--border);margin:20px 0}
-.md-body img{max-width:100%;border-radius:10px;margin:10px 0}
 .vp-actions{display:flex;align-items:center;gap:12px;margin-top:32px;padding-top:24px;border-top:1px solid var(--border);flex-wrap:wrap}
 .vote-btn{display:flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);font-family:var(--font);font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;user-select:none}
 .vote-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(201,168,76,.06)}
@@ -136,11 +133,6 @@ a{color:inherit;text-decoration:none}
 .title-input{width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:20px;font-weight:700;font-family:var(--font-d);padding:13px 16px;outline:none;transition:border-color .15s;margin-bottom:14px}
 .title-input:focus{border-color:var(--accent)}
 .title-input::placeholder{color:var(--text3);font-weight:400;font-size:17px}
-.cover-drop{background:var(--bg2);border:1.5px dashed var(--border);border-radius:12px;padding:16px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;transition:border-color .15s}
-.cover-drop:hover{border-color:var(--border2)}
-.cover-preview{width:120px;height:76px;border-radius:8px;background:var(--bg4) center/cover no-repeat;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px;text-align:center}
-.cover-drop-info{flex:1;min-width:180px}
-.cover-drop-info p{font-size:13px;color:var(--text2);margin-bottom:8px}
 .md-wrap{background:var(--bg3);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .15s}
 .md-wrap:focus-within{border-color:var(--accent)}
 .md-toolbar{display:flex;flex-wrap:wrap;gap:2px;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(0,0,0,.12)}
@@ -230,7 +222,6 @@ a{color:inherit;text-decoration:none}
   .news-header{flex-direction:column;align-items:flex-start;gap:10px}
   .news-header h1{font-size:20px}
   .news-card{flex-direction:column}
-  .news-card-cover{width:100%;height:150px}
   .news-card-body{padding:14px 16px}.news-card-title{font-size:16px}
   .vp-title{font-size:22px}.vp-hero{padding:20px 18px 18px}
   .md-body{font-size:15px}.title-input{font-size:16px}
@@ -243,8 +234,6 @@ a{color:inherit;text-decoration:none}
   .vp-author-bar{flex-direction:column;align-items:flex-start;gap:8px}
   .vp-author-bar .btn{width:100%;justify-content:center}
   .cmt-item-actions{flex-wrap:wrap}
-  .cover-drop{flex-direction:column;align-items:stretch}
-  .cover-preview{width:100%;height:120px}
 }
   </style>
 </head>
@@ -282,7 +271,6 @@ a{color:inherit;text-decoration:none}
   <!-- POST VIEW -->
   <div id="view-post" style="display:none">
     <div class="vp-back" data-i18n="news.all_news" onclick="goBack()">← Все новости</div>
-    <img id="vp-cover" class="vp-cover" style="display:none" alt="">
     <div class="vp-hero">
       <div id="vp-draft-wrap" style="display:none"><span class="draft-badge" data-i18n="news.draft_badge">ЧЕРНОВИК</span></div>
       <div class="vp-title" id="vp-title"></div>
@@ -386,15 +374,6 @@ a{color:inherit;text-decoration:none}
     </div>
     <input type="text" class="title-input" id="post-title" data-i18n-placeholder="news.title_placeholder" placeholder="Заголовок новости..." maxlength="200">
 
-    <div class="cover-drop">
-      <div class="cover-preview" id="cover-preview" data-i18n="news.no_cover">Нет обложки</div>
-      <div class="cover-drop-info">
-        <p data-i18n="news.cover_desc">Обложка новости (необязательно). JPG/PNG, до 5 МБ.</p>
-        <input type="file" id="cover-file-input" accept="image/*" onchange="onCoverFileChange(event)">
-        <button class="btn btn-ghost btn-sm" id="cover-remove-btn" style="display:none;margin-top:8px" data-i18n="news.remove_cover" onclick="removeCover()">✕ Убрать обложку</button>
-      </div>
-    </div>
-
     <div class="md-wrap">
       <div class="md-toolbar">
         <button onclick="ins('**','**')"><b>B</b></button>
@@ -462,7 +441,7 @@ a{color:inherit;text-decoration:none}
 //    Владелец (username 'chesshome') — назначает/снимает авторов
 //      новостей (первый автор по умолчанию — marina64), модерирует
 //      комментарии (удаление, мут).
-//    Авторы новостей — пишут новости, загружают обложку.
+//    Авторы новостей — пишут новости.
 //    Гости/юзеры — читают ленту, открывают /news/:id, лайк/дизлайк,
 //      комментируют.
 //
@@ -481,7 +460,6 @@ a{color:inherit;text-decoration:none}
 //    GET   /api/news/authors               -> {owner, authors:[...]}
 //    POST  /api/news/authors               {username}   (owner only)
 //    POST  /api/news/authors/remove        {username}   (owner only)
-//    POST  /api/upload                     multipart 'file' -> {url}
 //    GET   /api/me
 // ══════════════════════════════════════════════════════════════
 
@@ -492,7 +470,6 @@ let allPosts = [];
 let currentPost = null;
 let editingId = null;
 let currentFilter = 'published';
-let coverUrl = null;
 
 // ── i18n helpers (словарь подгружается header.js через /js/i18n.js) ──
 function T(key, vars) { return (window.CH_I18N && window.CH_I18N.t) ? CH_I18N.t(key, vars) : key; }
@@ -511,9 +488,11 @@ function getDevId() {
 const DEVID = getDevId();
 
 // formatDate() — глобальная, из /js/utils.js (2Г, унификация)
+// Картинки полностью отключены: markdown ![](url) и HTML <img> вырезаются
+marked.use({renderer:{ image(){ return ''; } }});
 function mdRender(text) {
   if (!text) return '';
-  return DOMPurify.sanitize(marked.parse(text, {breaks:true,gfm:true}), {USE_PROFILES:{html:true}});
+  return DOMPurify.sanitize(marked.parse(text, {breaks:true,gfm:true}), {USE_PROFILES:{html:true}, FORBID_TAGS:['img','picture','source','svg','image','video','object','embed','iframe']});
 }
 function isLoggedIn() { return !!currentUser; }
 function isOwner() { return currentUser && currentUser.username.toLowerCase() === OWNER_USERNAME; }
@@ -655,7 +634,7 @@ function renderList() {
   el.innerHTML = '';
   allPosts.forEach(p => {
     const card = document.createElement('div');
-    card.className = 'news-card' + (p.status==='draft' ? ' draft' : '') + (p.cover ? '' : ' news-card-noimg');
+    card.className = 'news-card' + (p.status==='draft' ? ' draft' : '') + ' news-card-noimg';
     const excerpt = (p.body||'').replace(/[#*`>_~\[\]!|]/g,'').replace(/\n+/g,' ').trim().slice(0,220);
     if (p.status === 'hidden') {
       card.innerHTML = `
@@ -673,7 +652,6 @@ function renderList() {
       return;
     }
     card.innerHTML = `
-      ${p.cover ? `<div class="news-card-cover" style="background-image:url('${escapeHtml(p.cover)}')"></div>` : ''}
       <div class="news-card-body">
         ${p.status==='draft' ? '<span class="draft-badge">' + T('news.draft_badge') + '</span>' : ''}
         <div class="news-card-title">${escapeHtml(p.title)}</div>
@@ -715,9 +693,6 @@ async function openPost(id, noView) {
     const post = await apiGet('/news/' + id + (noView ? '?noview=1' : ''));
     currentPost = post;
     document.getElementById('vp-draft-wrap').style.display = post.status==='draft' ? '' : 'none';
-    const coverEl = document.getElementById('vp-cover');
-    if (post.cover) { coverEl.src = post.cover; coverEl.style.display = ''; }
-    else { coverEl.style.display = 'none'; coverEl.src=''; }
     document.getElementById('vp-title').textContent = post.title;
     document.getElementById('vp-av').textContent = post.author[0].toUpperCase();
     document.getElementById('vp-author').textContent = post.author;
@@ -854,12 +829,10 @@ function openEditor(id) {
     document.getElementById('editor-h2').textContent = T('news.edit_news');
     document.getElementById('post-title').value = p?.title||'';
     document.getElementById('post-body').value = p?.body||'';
-    setCoverPreview(p?.cover || null);
   } else {
     document.getElementById('editor-h2').textContent = T('news.new_news');
     document.getElementById('post-title').value = '';
     document.getElementById('post-body').value = '';
-    setCoverPreview(null);
   }
   updateCounter();
   switchETab('write');
@@ -908,45 +881,6 @@ function insBlock() {
   ta.focus(); updateCounter();
 }
 
-// ── COVER IMAGE UPLOAD ───────────────────────────────────────────
-function setCoverPreview(url) {
-  coverUrl = url || null;
-  const prev = document.getElementById('cover-preview');
-  const rmBtn = document.getElementById('cover-remove-btn');
-  if (coverUrl) {
-    prev.style.backgroundImage = `url('${coverUrl}')`;
-    prev.textContent = '';
-    rmBtn.style.display = '';
-  } else {
-    prev.style.backgroundImage = '';
-    prev.textContent = T('news.no_cover');
-    rmBtn.style.display = 'none';
-  }
-}
-function removeCover() {
-  setCoverPreview(null);
-  document.getElementById('cover-file-input').value = '';
-}
-async function onCoverFileChange(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { toast('Выберите файл изображения','error'); return; }
-  if (file.size > 5*1024*1024) { toast('Файл больше 5 МБ','error'); return; }
-  const prev = document.getElementById('cover-preview');
-  prev.textContent = 'Загрузка...';
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    const r = await fetch('/api/upload', { method:'POST', credentials:'same-origin', body: fd });
-    const d = await parseApiResponse(r);
-    setCoverPreview(d.url);
-    toast('Обложка загружена','success');
-  } catch(err) {
-    toast(err.message || 'Не удалось загрузить обложку','error');
-    setCoverPreview(null);
-  }
-}
-
 async function savePost(status) {
   const title = document.getElementById('post-title').value.trim();
   const body  = document.getElementById('post-body').value.trim();
@@ -954,7 +888,7 @@ async function savePost(status) {
   if (!body)  { toast('Напишите текст новости','error'); return; }
   document.getElementById('btn-draft').disabled = true;
   document.getElementById('btn-pub').disabled   = true;
-  const payload = { title: b64EncodeUtf8(title), body: b64EncodeUtf8(body), cover: coverUrl || '', status, encoding: 'b64' };
+  const payload = { title: b64EncodeUtf8(title), body: b64EncodeUtf8(body), cover: '', status, encoding: 'b64' };
   try {
     if (editingId) { await apiPatch('/news/'+editingId, payload); }
     else           { await apiPost('/news', payload); }
