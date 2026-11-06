@@ -122,7 +122,15 @@ function renderAdminUserList(users, container) {
   });
 }
 
+// Дубликат проверки роли из app.js/app/profile.js: adminBanInline доступен
+// в window и может быть вызван из консоли не-админом — не показываем prompt
+// и не отправляем запрос, который сервер всё равно вернёт с 403.
+function isAdminClient() {
+  return !!(currentUser && currentUser.role === 'admin');
+}
+
 async function adminBanInline(username) {
+  if (!isAdminClient()) { toast('Нет прав', 'error'); return; }
   const reason = prompt('Причина бана ' + username + ':', 'Нарушение правил');
   if (reason === null) return;
   try {

@@ -773,7 +773,17 @@ function challengeUserFromProfile(username) {
   socket.emit('challenge_user', { username, rated, timeControl: selectedTC });
 }
 
+// Функции доступны в window (классический скрипт), поэтому их может
+// вызвать кто угодно из консоли DevTools. Сервер всё равно отклонит
+// запрос не-админа (403), но проверку роли дублируем на клиенте:
+// непривилегированному пользователю не показываем админский prompt
+// и не гоняем заведомо запрещённые запросы к /api/admin/*.
+function isAdminClient() {
+  return !!(currentUser && currentUser.role === 'admin');
+}
+
 async function adminBan(username) {
+  if (!isAdminClient()) { toast('Нет прав', 'error'); return; }
   const reason = prompt(`Причина бана ${username}:`, 'Нарушение правил');
   if (reason === null) return;
   try {
@@ -784,6 +794,7 @@ async function adminBan(username) {
 }
 
 async function adminUnban(username) {
+  if (!isAdminClient()) { toast('Нет прав', 'error'); return; }
   try {
     await apiPost('/admin/unban', { username });
     toast(`${username} разблокирован`, 'success');
